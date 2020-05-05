@@ -7,11 +7,12 @@
 
 #include "Wifi.h"
 
-#include "esp_wifi.h" 	// esp8266/include/...
-#include "esp_log.h"   	// ESP_LOGI()
-#include "nvs.h"   		// nvs_open(), ...
+#include <string.h>         // strncpy()
 
-#include <string.h>		// strncpy()
+#include "esp_wifi.h"       // esp_wifi_init(), ...
+#include "nvs.h"            // nvs_open(), ...
+#include "esp_ota_ops.h"    // esp_ota_get_app_description()
+#include "esp_log.h"        // ESP_LOGI()
 
 const char *s_keySsid = "ssid";
 const char *s_keyPassword = "password";
@@ -67,7 +68,7 @@ bool Wifi::SetParam( const char * ssid, const char * password )
     return esp == ESP_OK;
 }
 
-extern "C" void relay_wifi_event( void * wifi, esp_event_base_t event_base,
+extern "C" void wifi_event( void * wifi, esp_event_base_t event_base,
         int32_t event_id, void * event_data )
 {
     ((Wifi*) wifi)->Event( event_base, event_id, event_data );
@@ -89,7 +90,7 @@ void Wifi::Event( esp_event_base_t event_base, int32_t event_id,
     }
 }
 
-extern "C" void relay_got_ip( void * wifi, esp_event_base_t event_base,
+extern "C" void got_ip( void * wifi, esp_event_base_t event_base,
         int32_t event_id, void * event_data )
 {
     ((Wifi*) wifi)->GotIp( (ip_event_got_ip_t*) event_data );
@@ -108,8 +109,8 @@ bool Wifi::ModeSta( int connTimoInSecs )
     ESP_LOGI( TAG, "Connecting to \"%s\" ...", mSsid );
 
     ESP_ERROR_CHECK(
-            esp_event_handler_register( IP_EVENT, IP_EVENT_STA_GOT_IP,
-                    &relay_got_ip, this ) );
+            esp_event_handler_register( IP_EVENT, IP_EVENT_STA_GOT_IP, &got_ip,
+                    this ) );
 
     wifi_config_t wifi_config;
     memset( &wifi_config, 0, sizeof(wifi_config_t) );
@@ -143,8 +144,9 @@ void Wifi::ModeAp()
         uint8_t mac[6];
         esp_read_mac( mac, ESP_MAC_WIFI_SOFTAP );
         wifi_config.ap.ssid_len = snprintf( (char*) wifi_config.ap.ssid,
-                sizeof(wifi_config.ap.ssid), "Relay-%02x-%02x-%02x", mac[3],
-                mac[4], mac[5] );
+                sizeof(wifi_config.ap.ssid), "%s-%02x-%02x-%02x",
+                esp_ota_get_app_description()->project_name, mac[3], mac[4],
+                mac[5] );
     }
     wifi_config.ap.max_connection = 4;
     wifi_config.ap.authmode = WIFI_AUTH_OPEN;
@@ -166,7 +168,7 @@ void Wifi::Init( int connTimoInSecs )
 
     ESP_ERROR_CHECK( esp_wifi_init( &wifi_init_config ) );
     ESP_ERROR_CHECK(
-            esp_event_handler_register( WIFI_EVENT, ESP_EVENT_ANY_ID, & relay_wifi_event, this ) );
+            esp_event_handler_register( WIFI_EVENT, ESP_EVENT_ANY_ID, & wifi_event, this ) );
 
     if (!mSsid[0]) {
         ModeAp();
