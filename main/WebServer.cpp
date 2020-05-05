@@ -17,41 +17,17 @@ static const char *TAG = "WebServer";
 
 #define min(a,b) ((a) < (b) ? a : b)
 
+#define SendCharsChunk( req, chararray )  httpd_resp_send_chunk( req, chararray, sizeof(chararray) - 1 )
+
+void SendStringChunk( httpd_req_t * req, const char * string )
+{
+    httpd_resp_send_chunk( req, string, strlen( string ) );
+}
+
+
 extern "C" esp_err_t handler_get_main( httpd_req_t * req )
 {
-//@formatter:off
-    static char s_welcome[] = "<h1>%s</h1>"
-                               "<table border=0>"
-                                "<tr><td>Project version:</td>" "<td>%s</td></tr>"
-                                "<tr><td>IDF version:</td>"     "<td>%s</td></tr>"
-                               "</table>";
-    static char s_wifi[]   = "<a href=\"wifi\">"   "Set WLAN parameter" "</a>";
-    static char s_update[] = "<a href=\"update\">" "Firmware update"    "</a>";
-    static char s_reboot[] = "<a href=\"reboot\">" "Reboot device"      "</a>";
-    static char s_br[]     = "<br />";
-//@formatter:on
-
-    {
-        const esp_app_desc_t *const desc = esp_ota_get_app_description();
-        char *welcome = NULL;
-        int len = asprintf( &welcome, s_welcome, desc->project_name,
-                desc->version, desc->idf_ver );
-        httpd_resp_send_chunk( req, welcome, len );
-        free( welcome );
-    }
-    httpd_resp_send_chunk( req, s_br, sizeof(s_br) - 1 );
-    httpd_resp_send_chunk( req, s_br, sizeof(s_br) - 1 );
-    httpd_resp_send_chunk( req, s_wifi, sizeof(s_wifi) - 1 );
-
-    if (Wifi::Instance().StationMode()) {
-        // update available just in station mode
-        httpd_resp_send_chunk( req, s_br, sizeof(s_br) - 1 );
-        httpd_resp_send_chunk( req, s_update, sizeof(s_update) - 1 );
-    }
-    httpd_resp_send_chunk( req, s_br, sizeof(s_br) - 1 );
-    httpd_resp_send_chunk( req, s_reboot, sizeof(s_reboot) - 1 );
-
-    httpd_resp_send_chunk( req, NULL, 0 );
+    WebServer::Instance().MainPage( req );
     return ESP_OK;
 }
 
@@ -78,10 +54,9 @@ extern "C" esp_err_t handler_get_wifi( httpd_req_t * req )
                             "</form>";
 //@formatter:on
 
-    httpd_resp_send_chunk( req, s_data1, sizeof(s_data1) );
-    const char *const ssid = Wifi::Instance().GetSsid();
-    httpd_resp_send_chunk( req, ssid, strlen( ssid ) );
-    httpd_resp_send_chunk( req, s_data3, sizeof(s_data3) );
+    SendCharsChunk( req, s_data1 );
+    SendStringChunk( req, Wifi::Instance().GetSsid() );
+    SendCharsChunk( req, s_data3 );
     httpd_resp_send_chunk( req, 0, 0 );
     return ESP_OK;
 }
@@ -90,7 +65,7 @@ extern "C" esp_err_t handler_post_wifi( httpd_req_t * req )
 {
     if (!req->content_len) {
         const char s_msg[] = "no data - nothing done";
-        httpd_resp_send( req, s_msg, sizeof(s_msg) - 1 );
+        SendCharsChunk( req, s_msg );
         return ESP_OK;
     }
     enum STATUS
@@ -167,7 +142,7 @@ extern "C" esp_err_t handler_post_wifi( httpd_req_t * req )
                     end = vp + sizeof(key) - 1;
                 } else if (vp >= end) {
                     const char s_msg[] = "value too long";
-                    httpd_resp_send( req, s_msg, sizeof(s_msg) - 1 );
+                    SendCharsChunk( req, s_msg );
                     snprintf( buf, sizeof(buf),
                             "\"%s\" value too long (max %d)", key, end - val );
                     const int strlenbuf = strlen( buf );
@@ -205,7 +180,7 @@ extern "C" esp_err_t handler_post_wifi( httpd_req_t * req )
 
     if (status != VALUE) {
         const char s_msg[] = "unexpected end of data while parsing key";
-        httpd_resp_send( req, s_msg, sizeof(s_msg) - 1 );
+        SendCharsChunk( req, s_msg );
         return ESP_OK;
     }
     *vp = 0;
@@ -231,20 +206,20 @@ extern "C" esp_err_t handler_post_wifi( httpd_req_t * req )
         x |= 2;
     if (!x) {
         const char s_msg[] = "data unchanged";
-        httpd_resp_send( req, s_msg, sizeof(s_msg) - 1 );
+        SendCharsChunk( req, s_msg );
         return ESP_OK;
     }
 #if 0
 	// ESP_LOGI( TAG, "received ssid \"%s\", password \"%s\"", id, pw );
 	if (! wifi.SetParam( id, pw )) {
 		const char s_err[] = "setting wifi parameter failed - try again";
-		httpd_resp_send( req, s_err, sizeof(s_err)-1 );
+		SendCharsChunk( req, s_err );
 		return ESP_OK;
 
 	}
 #endif
     const char s_ok[] = "configuration would have been set";
-    httpd_resp_send( req, s_ok, sizeof(s_ok) - 1 );
+    SendCharsChunk( req, s_ok );
     return ESP_OK;
 }
 
@@ -259,7 +234,7 @@ static char s_update[] =
 
 extern "C" esp_err_t handler_get_update( httpd_req_t * req )
 {
-    httpd_resp_send( req, s_update, sizeof(s_update) - 1 );
+    SendCharsChunk( req, s_update );
     return ESP_OK;
 }
 
@@ -269,8 +244,8 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
 
     if (req->content_len <= (2 * sizeof(buf))) {
         const char s_err[] = "<br /><br />too less data -> please retry";
-        httpd_resp_send_chunk( req, s_update, sizeof(s_update) - 1 );
-        httpd_resp_send_chunk( req, s_err, sizeof(s_err) - 1 );
+        SendCharsChunk( req, s_update );
+        SendCharsChunk( req, s_err );
         httpd_resp_send_chunk( req, 0, 0 );
         return ESP_OK;
     }
@@ -293,11 +268,11 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
             }
             if (!ota) {
                 const char s_err[] = "1st read failed";
-                httpd_resp_send( req, s_err, sizeof(s_err) - 1 );
+                SendCharsChunk( req, s_err );
             } else {
                 esp_ota_end( ota );
                 const char s_err[] = "sub sequential read failed";
-                httpd_resp_send( req, s_err, sizeof(s_err) - 1 );
+                SendCharsChunk( req, s_err );
             }
             return ESP_OK;
         }
@@ -307,7 +282,7 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
                 ++nofdashes;
             if (!nofdashes) {
                 const char s_err[] = "boundary dashes (---) missing";
-                httpd_resp_send( req, s_err, sizeof(s_err) - 1 );
+                SendCharsChunk( req, s_err );
                 return ESP_OK;
             }
             char *bp = boundary;
@@ -317,14 +292,14 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
             boundarylen = bp - &boundary[0];
             if (!boundarylen) {
                 const char s_err[] = "boundary digit missing";
-                httpd_resp_send( req, s_err, sizeof(s_err) - 1 );
+                SendCharsChunk( req, s_err );
                 return ESP_OK;
             }
 
             char *start = strchr( cp, 0xe9 );
             if ((!start) || (start >= &buf[readlen]) || (start[-1] != '\n')) {
                 const char s_err[] = "0xe9 on new line missing";
-                httpd_resp_send( req, s_err, sizeof(s_err) - 1 );
+                SendCharsChunk( req, s_err );
                 return ESP_OK;
             }
 
@@ -333,7 +308,7 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
                     &ota );
             if (err != ESP_OK) {
                 const char s_err[] = "OTA initialization failed";
-                httpd_resp_send( req, s_err, sizeof(s_err) - 1 );
+                SendCharsChunk( req, s_err );
                 return ESP_OK;
             }
             const esp_err_t werr = esp_ota_write( ota, start,
@@ -373,7 +348,7 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
                 }
 #endif
                 const char s_err[] = "1st OTA write failed";
-                httpd_resp_send( req, s_err, sizeof(s_err) - 1 );
+                SendCharsChunk( req, s_err );
                 return ESP_OK;
             }
         } else {
@@ -381,7 +356,7 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
             if (werr != ESP_OK) {
                 esp_ota_end( ota );
                 const char s_err[] = "sub sequential OTA write failed";
-                httpd_resp_send( req, s_err, sizeof(s_err) - 1 );
+                SendCharsChunk( req, s_err );
                 return ESP_OK;
             }
         }
@@ -389,7 +364,7 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
     }
     if (!ota) {
         const char s_err[] = "no data received";
-        httpd_resp_send( req, s_err, sizeof(s_err) - 1 );
+        SendCharsChunk( req, s_err );
         return ESP_OK;
     }
 
@@ -402,7 +377,7 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
             }
             esp_ota_end( ota );
             const char s_err[] = "last read failed";
-            httpd_resp_send( req, s_err, sizeof(s_err) - 1 );
+            SendCharsChunk( req, s_err );
             return ESP_OK;
         }
         remaining -= readlen;
@@ -452,7 +427,7 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
     if (werr != ESP_OK) {
         esp_ota_end( ota );
         const char s_err[] = "last OTA write failed";
-        httpd_resp_send( req, s_err, sizeof(s_err) - 1 );
+        SendCharsChunk( req, s_err );
         return ESP_OK;
     }
 
@@ -465,9 +440,9 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
             "<form method=\"post\" action=\"/reboot\">"
             "<button type=\"submit\">reboot</button>"
             "</form>";
-    httpd_resp_send_chunk( req, s_data1, sizeof(s_data1) );
-    httpd_resp_send_chunk( req, partition->label, strlen( partition->label ) );
-    httpd_resp_send_chunk( req, s_data3, sizeof(s_data3) );
+    SendCharsChunk( req, s_data1 );
+    SendStringChunk( req, partition->label );
+    SendCharsChunk( req, s_data3 );
     httpd_resp_send_chunk( req, 0, 0 );
     return ESP_OK;
 }
@@ -477,7 +452,7 @@ extern "C" esp_err_t handler_get_reboot( httpd_req_t * req )
     static char s_fmt[] = "<form method=\"post\">"
             "<button type=\"submit\">reboot</button>"
             "</form>";
-    httpd_resp_send( req, s_fmt, sizeof(s_fmt) - 1 );
+    SendCharsChunk( req, s_fmt );
     return ESP_OK;
 }
 
@@ -490,7 +465,7 @@ extern "C" esp_err_t handler_post_reboot( httpd_req_t * req )
             "This device will reboot - you will get redirected soon"
             "</body>";
 
-    httpd_resp_send( req, s_info, sizeof(s_info) - 1 );
+    SendCharsChunk( req, s_info );
     vTaskDelay( configTICK_RATE_HZ / 10 );
 
     esp_restart();
@@ -500,20 +475,41 @@ extern "C" esp_err_t handler_post_reboot( httpd_req_t * req )
     return ESP_OK;
 }
 
-const httpd_uri_t uri_main = { .uri = "/", .method = HTTP_GET, .handler =
-        handler_get_main, .user_ctx = 0 };
-const httpd_uri_t uri_get_wifi = { .uri = "/wifi", .method = HTTP_GET,
-        .handler = handler_get_wifi, .user_ctx = 0 };
-const httpd_uri_t uri_post_wifi = { .uri = "/wifi", .method = HTTP_POST,
-        .handler = handler_post_wifi, .user_ctx = 0 };
-const httpd_uri_t uri_get_update = { .uri = "/update", .method = HTTP_GET,
-        .handler = handler_get_update, .user_ctx = 0 };
-const httpd_uri_t uri_post_update = { .uri = "/update", .method = HTTP_POST,
-        .handler = handler_post_update, .user_ctx = 0 };
-const httpd_uri_t uri_get_reboot = { .uri = "/reboot", .method = HTTP_GET,
-        .handler = handler_get_reboot, .user_ctx = 0 };
-const httpd_uri_t uri_post_reboot = { .uri = "/reboot", .method = HTTP_POST,
-        .handler = handler_post_reboot, .user_ctx = 0 };
+//@formatter:off
+const httpd_uri_t uri_main =        { .uri = "/",
+                                      .method = HTTP_GET,
+                                      .handler = handler_get_main,
+                                      .user_ctx = 0 };
+const httpd_uri_t uri_get_wifi =    { .uri = "/wifi",
+                                      .method = HTTP_GET,
+                                      .handler = handler_get_wifi,
+                                      .user_ctx = 0 };
+const httpd_uri_t uri_post_wifi =   { .uri = "/wifi",
+                                      .method = HTTP_POST,
+                                      .handler = handler_post_wifi,
+                                      .user_ctx = 0 };
+const httpd_uri_t uri_get_update =  { .uri = "/update",
+                                      .method = HTTP_GET,
+                                      .handler = handler_get_update,
+                                      .user_ctx = 0 };
+const httpd_uri_t uri_post_update = { .uri = "/update",
+                                      .method = HTTP_POST,
+                                      .handler = handler_post_update,
+                                      .user_ctx = 0 };
+const httpd_uri_t uri_get_reboot =  { .uri = "/reboot",
+                                      .method = HTTP_GET,
+                                      .handler = handler_get_reboot,
+                                      .user_ctx = 0 };
+const httpd_uri_t uri_post_reboot = { .uri = "/reboot",
+                                      .method = HTTP_POST,
+                                      .handler = handler_post_reboot,
+                                      .user_ctx = 0 };
+
+const WebServer::Page page_wifi    { uri_get_wifi,   "WLAN parameter" };
+const WebServer::Page page_update  { uri_get_update, "Firmware update" };
+const WebServer::Page page_reboot  { uri_get_reboot, "Restart device" };
+
+//@formatter:on
 
 extern "C" httpd_handle_t start_webserver( void )
 {
@@ -521,12 +517,12 @@ extern "C" httpd_handle_t start_webserver( void )
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
 
     // Start the httpd server
-    ESP_LOGI( TAG, "Starting server on port: '%d'", config.server_port );
+    ESP_LOGI( TAG, "Starting web server on port: '%d'", config.server_port );
     if (httpd_start( &server, &config ) == ESP_OK) {
         return server;
     }
 
-    ESP_LOGI( TAG, "Error starting server!" );
+    ESP_LOGI( TAG, "Error starting web server!" );
     return NULL;
 }
 
@@ -541,7 +537,7 @@ extern "C" void disconnect_handler( void * arg, esp_event_base_t event_base,
 {
     httpd_handle_t *server = (httpd_handle_t*) arg;
     if (*server) {
-        ESP_LOGI( TAG, "Stopping webserver" );
+        ESP_LOGI( TAG, "Stopping web server" );
         stop_webserver( *server );
         *server = NULL;
     }
@@ -552,7 +548,7 @@ extern "C" void connect_handler( void * arg, esp_event_base_t event_base,
 {
     httpd_handle_t *server = (httpd_handle_t*) arg;
     if (*server == NULL) {
-        ESP_LOGI( TAG, "Starting webserver" );
+        ESP_LOGI( TAG, "Starting web server" );
         *server = start_webserver();
     }
 }
@@ -568,20 +564,65 @@ WebServer& WebServer::Instance()
     return webserver;
 }
 
+void WebServer::AddPage( const WebServer::Page & page, const httpd_uri_t * postUri )
+{
+    PageList * elem = new PageList{ page };
+    if (LastElem) {
+        LastElem->Next = elem;
+    } else {
+        Anchor = elem;
+    }
+    LastElem = elem;
+
+    httpd_register_uri_handler( server, & page.Uri );
+    if (postUri)
+        httpd_register_uri_handler( server, postUri );
+}
+
+void WebServer::MainPage( httpd_req_t * req )
+{
+//@formatter:off
+    static char s_welcome[] = "<h1>%s</h1>"
+                               "<table border=0>"
+                                "<tr><td>Project version:</td>" "<td>%s</td></tr>"
+                                "<tr><td>IDF version:</td>"     "<td>%s</td></tr>"
+                               "</table>";
+    static char s_br[]     = "<br />";
+//@formatter:on
+
+    {
+        const esp_app_desc_t *const desc = esp_ota_get_app_description();
+        char *welcome = NULL;
+        int len = asprintf( &welcome, s_welcome, desc->project_name,
+                desc->version, desc->idf_ver );
+        httpd_resp_send_chunk( req, welcome, len );
+        free( welcome );
+    }
+    SendCharsChunk( req, s_br );
+
+    for (PageList * elem = Anchor; elem; elem = elem->Next)
+    {
+        SendCharsChunk( req, s_br );
+        SendStringChunk( req, "<a href=\"" );
+        SendStringChunk( req, elem->Page.Uri.uri );
+        SendStringChunk( req, "\">" );
+        SendStringChunk( req, elem->Page.LinkText );
+        SendStringChunk( req, "</a>" );
+    }
+
+    httpd_resp_send_chunk( req, NULL, 0 );
+}
+
 void WebServer::Init()
 {
     ESP_LOGI( TAG, "Registering URI handlers" );
 
     httpd_register_uri_handler( server, &uri_main );
-    httpd_register_uri_handler( server, &uri_get_wifi );
-    httpd_register_uri_handler( server, &uri_post_wifi );
+
+    AddPage( page_wifi, &uri_post_wifi );
 
     if (Wifi::Instance().StationMode()) {
-        // update available just in station mode
-        httpd_register_uri_handler( server, &uri_get_update );
-        httpd_register_uri_handler( server, &uri_post_update );
+        AddPage( page_update, &uri_post_update );
     }
-
-    httpd_register_uri_handler( server, &uri_get_reboot );
-    httpd_register_uri_handler( server, &uri_post_reboot );
+    AddPage( page_reboot, &uri_post_reboot );
 }
