@@ -19,11 +19,12 @@ static const char *TAG = "WebServer";
 
 #define SendCharsChunk( req, chararray )  httpd_resp_send_chunk( req, chararray, sizeof(chararray) - 1 )
 
+namespace {
 void SendStringChunk( httpd_req_t * req, const char * string )
 {
     httpd_resp_send_chunk( req, string, strlen( string ) );
 }
-
+}
 
 extern "C" esp_err_t handler_get_main( httpd_req_t * req )
 {

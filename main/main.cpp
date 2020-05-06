@@ -8,6 +8,9 @@
 #include "Wifi.h"
 #include "WebServer.h"
 
+#include "AnalogReader.h"
+#include "Monitor.h"
+
 #include "esp_event.h"  // esp_event_loop_create_default()
 #include "esp_netif.h"  // esp_netif_init()
 #include "esp_log.h"    // ESP_LOGI()
@@ -47,8 +50,7 @@ extern "C" void app_main()
     // now we can initialize web server:
     WebServer::Instance().Init();
 
-    // todo: add real code according your needs
-    // for testing purpose, we just toggle the LED on GPIO2:
+    // LED on GPIO2:
     {
         gpio_config_t io_conf;
 
@@ -60,8 +62,17 @@ extern "C" void app_main()
 
         gpio_config( &io_conf );    // configure GPIO with the given settings
     }
+
+    AnalogReader reader;
+    if (! reader.Init( 10/*Hz*/, 100/*values to store*/ )) {
+        gpio_set_level( GPIO_NUM_2, 0 );        // low active -> steady on indicates error
+        while (true)
+            vTaskDelay( portMAX_DELAY );
+    }
+    Monitor monitor{reader};
+
     while (true) {
-        gpio_set_level( GPIO_NUM_2, 0 );        // low active
+        gpio_set_level( GPIO_NUM_2, 0 );        // low active -> flashing 1/10th second each second
         vTaskDelay( configTICK_RATE_HZ / 10 );
         gpio_set_level( GPIO_NUM_2, 1 );
         vTaskDelay( (configTICK_RATE_HZ * 9) / 10 );
