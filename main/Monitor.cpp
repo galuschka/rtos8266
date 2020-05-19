@@ -6,7 +6,9 @@
  */
 
 #include "Monitor.h"
+
 #include "WebServer.h"
+#include "Wifi.h"
 
 #define SendCharsChunk( req, chararray )  httpd_resp_send_chunk( req, chararray, sizeof(chararray) - 1 )
 
@@ -18,19 +20,19 @@ void SendStringChunk( httpd_req_t * req, const char * string )
 }
 }
 
-extern "C" esp_err_t handler_get( httpd_req_t * req );
+extern "C" esp_err_t monitor_get( httpd_req_t * req );
 
 //@formatter:off
 const httpd_uri_t s_uri =       { .uri = "/monitor",
                                   .method = HTTP_GET,
-                                  .handler = handler_get,
+                                  .handler = monitor_get,
                                   .user_ctx = 0 };
 const WebServer::Page s_page    { s_uri, "Monitor analog pin values" };
 //@formatter:on
 
 Monitor *s_monitor = 0;
 
-extern "C" esp_err_t handler_get( httpd_req_t * req )
+extern "C" esp_err_t monitor_get( httpd_req_t * req )
 {
     if (s_monitor)
         s_monitor->Show( req );
@@ -40,8 +42,10 @@ extern "C" esp_err_t handler_get( httpd_req_t * req )
 Monitor::Monitor( AnalogReader & analog_reader ) :
         Reader { analog_reader }
 {
-    s_monitor = this;
-    WebServer::Instance().AddPage( s_page, 0 );
+    if (Wifi::Instance().StationMode()) {
+        s_monitor = this;
+        WebServer::Instance().AddPage( s_page, 0 );
+    }
 }
 
 Monitor::~Monitor()

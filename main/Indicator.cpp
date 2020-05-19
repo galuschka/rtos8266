@@ -57,20 +57,20 @@ void Indicator::Indicate( Indicator::STATUS status )
         return;
     Status = status;
     switch (Status) {
-    case STATUS_ERROR:      // |----------------------------------
+    case STATUS_ERROR:      // |##################################...
         SigMask = 0;
         break;
-    case STATUS_AP:         // |---------------------------|_|-|_|
+    case STATUS_AP:         // |###########################|_|#|_|
         SigMask = 0x111d;
         break;
-    case STATUS_CONNECT:    // |-------------------------------|_|
-        SigMask = 0x1f1f;
+    case STATUS_CONNECT:    // |###############################|_|
+        SigMask = 0x1f;
         break;
-    case STATUS_IDLE:       // |______________|-|______________|-|
-        SigMask = 0x7171;
+    case STATUS_IDLE:       // |_______________________________|#|
+        SigMask = 0xf1;
         break;
-    case STATUS_ACTIVE:     // |_______|--------|_______|--------|
-        SigMask = 0x4444;
+    case STATUS_ACTIVE:     // |################|________________|
+        SigMask = 0x88;
         break;
     }
     xSemaphoreGive( Semaphore );
@@ -93,6 +93,6 @@ void Indicator::Run()
             continue;
 
         gpio_set_level( Pin, phase & 1 );
-        xSemaphoreTake( Semaphore, (duration * configTICK_RATE_HZ) / 16 );
+        xSemaphoreTake( Semaphore, (duration * configTICK_RATE_HZ) / 8 );
     }
 }
