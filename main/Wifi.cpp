@@ -143,10 +143,12 @@ void Wifi::ModeAp()
     {
         uint8_t mac[6];
         esp_read_mac( mac, ESP_MAC_WIFI_SOFTAP );
+        const esp_app_desc_t * const app_description = esp_ota_get_app_description();
         wifi_config.ap.ssid_len = snprintf( (char*) wifi_config.ap.ssid,
-                sizeof(wifi_config.ap.ssid), "%s-%02x-%02x-%02x",
-                esp_ota_get_app_description()->project_name, mac[3], mac[4],
-                mac[5] );
+                sizeof(wifi_config.ap.ssid), "%.*s-%02x-%02x-%02x",
+                sizeof(wifi_config.ap.ssid) - 10,
+                app_description->project_name, mac[3], mac[4], mac[5] );
+        wifi_config.ap.ssid[sizeof(wifi_config.ap.ssid) - 1] = 0;
     }
     wifi_config.ap.max_connection = 4;
     wifi_config.ap.authmode = WIFI_AUTH_OPEN;
@@ -154,6 +156,8 @@ void Wifi::ModeAp()
     // memcpy( wifi_config.ap.password, ???, sizeof(wifi_config.ap.password) );
 
     ESP_LOGI( TAG, "Setup AP \"%s\" ...", wifi_config.ap.ssid );
+    if ( LOG_LOCAL_LEVEL >= ESP_LOG_INFO)
+        vTaskDelay( 1 ); // output collides with esp_wifi_set_mode() output
     ESP_ERROR_CHECK( esp_wifi_set_mode( WIFI_MODE_AP ) );
     ESP_ERROR_CHECK( esp_wifi_set_config( ESP_IF_WIFI_AP, &wifi_config ) );
     ESP_ERROR_CHECK( esp_wifi_start() );

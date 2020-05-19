@@ -17,7 +17,7 @@ const char *const TAG = "AnalogReader";
 
 AnalogReader::AnalogReader() :
         TaskHandle { 0 }, Store { 0 }, StorePtr { 0 }, StoreEnd { 0 }, DimStore {
-                0 }, Delay { 0 }
+                0 }, Delay { 0 }, GpioPwr { GPIO_NUM_MAX }
 {
 }
 
@@ -34,6 +34,7 @@ AnalogReader::~AnalogReader()
     StorePtr = 0;
     StoreEnd = 0;
     DimStore = 0;
+    GpioPwr  = GPIO_NUM_MAX;
     free( tofree );
 }
 
@@ -46,7 +47,12 @@ void AnalogReader::Run()
 {
     while (Delay) {
         uint16_t val;
+        if (GpioPwr != GPIO_NUM_MAX)
+            gpio_set_level( GpioPwr, 1 );
         const esp_err_t err = adc_read( &val );
+        if (GpioPwr != GPIO_NUM_MAX)
+            gpio_set_level( GpioPwr, 0 );
+
         if (err != ESP_OK) {
             ESP_LOGE( TAG, "adc_read() failed: %d", err );
         } else {
@@ -58,13 +64,13 @@ void AnalogReader::Run()
     }
 }
 
-bool AnalogReader::Init( int frequency, int dimStore )
+bool AnalogReader::Init( int frequency, int dimStore, gpio_num_t gpioSensorPwrSply )
 {
     {
         adc_config_t adc_config;
 
         adc_config.mode = ADC_READ_TOUT_MODE;
-        adc_config.clk_div = 8; // ADC sample collection clock = 80MHz/clk_div (in range 8..32)
+        adc_config.clk_div = 32; // ADC sample collection clock = 80MHz/clk_div (in range 8..32)
         esp_err_t err = adc_init( &adc_config );
         if (err != ESP_OK) {
             ESP_LOGE( TAG, "adc_init() failed: %d", err );
@@ -78,10 +84,25 @@ bool AnalogReader::Init( int frequency, int dimStore )
                 sizeof(value_t) );
         return false;
     }
+
+    if (gpioSensorPwrSply != GPIO_NUM_MAX)
+    {
+        gpio_config_t io_conf;
+
+        io_conf.pin_bit_mask = (1 << gpioSensorPwrSply);  // the pin
+        io_conf.mode         = GPIO_MODE_OUTPUT;          // set as output mode
+        io_conf.pull_up_en   = GPIO_PULLUP_DISABLE;       // disable pull-up mode
+        io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;     // disable pull-down mode
+        io_conf.intr_type    = GPIO_INTR_DISABLE;         // disable interrupt
+
+        gpio_config( &io_conf );    // configure GPIO with the given settings
+    }
+
     StoreEnd = Store + dimStore;    // beyond end
     StorePtr = Store;               // write pointer
     DimStore = dimStore;
-    Delay = configTICK_RATE_HZ / frequency;
+    Delay    = configTICK_RATE_HZ / frequency;
+    GpioPwr  = gpioSensorPwrSply;
 
     xTaskCreate( PressureTask, "Pressure", /*stack size*/1024, this, /*prio*/1,
             &TaskHandle );
@@ -92,6 +113,8 @@ bool AnalogReader::Init( int frequency, int dimStore )
         StorePtr = 0;
         StoreEnd = 0;
         DimStore = 0;
+        Delay    = 0;
+        GpioPwr  = GPIO_NUM_MAX;
         return false;
     }
 

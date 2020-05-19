@@ -54,22 +54,24 @@ extern "C" void app_main()
     {
         gpio_config_t io_conf;
 
-        io_conf.pin_bit_mask = (1 << GPIO_NUM_2);       // blue LED onchip
-        io_conf.mode = GPIO_MODE_OUTPUT;                // set as output mode
-        io_conf.pull_up_en = GPIO_PULLUP_DISABLE;       // disable pull-up mode
+        io_conf.pin_bit_mask = (1 << GPIO_NUM_2);      // blue LED onchip
+        io_conf.mode         = GPIO_MODE_OUTPUT;       // set as output mode
+        io_conf.pull_up_en   = GPIO_PULLUP_DISABLE;    // disable pull-up mode
         io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;  // disable pull-down mode
-        io_conf.intr_type = GPIO_INTR_DISABLE;          // disable interrupt
+        io_conf.intr_type    = GPIO_INTR_DISABLE;      // disable interrupt
 
         gpio_config( &io_conf );    // configure GPIO with the given settings
     }
 
     AnalogReader reader;
-    if (! reader.Init( 10/*Hz*/, 100/*values to store*/ )) {
+    if (! reader.Init( 10/*Hz*/, 100/*values to store*/, GPIO_NUM_15/*power supply to sensor*/ )) {
         gpio_set_level( GPIO_NUM_2, 0 );        // low active -> steady on indicates error
         while (true)
             vTaskDelay( portMAX_DELAY );
     }
     Monitor monitor{reader};
+
+    // Switch switch{monitor};
 
     while (true) {
         gpio_set_level( GPIO_NUM_2, 0 );        // low active -> flashing 1/10th second each second

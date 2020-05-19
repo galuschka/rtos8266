@@ -12,6 +12,7 @@
 
 #include "FreeRTOS.h"
 #include "task.h"           // TaskHandle_t
+#include "driver/gpio.h"    // gpio_num_t
 
 class AnalogReader
 {
@@ -21,7 +22,8 @@ public:
     AnalogReader();
     ~AnalogReader();
 
-    bool Init( int frequency, int dimStore ); // create and run the thread - read values with given frequency
+    // create and run the thread - read values with given frequency
+    bool Init( int frequency, int dimStore, gpio_num_t gpioSensorPwrSply );
     void GetValues( value_t * dest, int dim ) const; // copy last <dim> values to <dest> array
 
     value_t Average( int num ) const; // return average of the last <num> values
@@ -37,6 +39,7 @@ private:
     value_t * StoreEnd;  // wrap margin (= Store + dimStore)
     int       DimStore;  // save the dimension
     int       Delay;     // delay for thread routine
+    gpio_num_t GpioPwr;  // to switch sensor power supply
 };
 
 #endif /* MAIN_ANALOGREADER_H_ */
