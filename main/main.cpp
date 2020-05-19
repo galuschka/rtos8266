@@ -8,8 +8,11 @@
 #include "Wifi.h"
 #include "WebServer.h"
 
+#include "Indicator.h"
 #include "AnalogReader.h"
 #include "Monitor.h"
+#include "Relay.h"
+#include "Control.h"
 
 #include "esp_event.h"  // esp_event_loop_create_default()
 #include "esp_netif.h"  // esp_netif_init()
@@ -42,41 +45,29 @@ void main_nvs_init()
 
 extern "C" void app_main()
 {
+    // LED on GPIO2:
+    Indicator indicator { GPIO_NUM_2 };         // blue onchip LED
+    indicator.Init();
+
     main_nvs_init();  // initialize non-volatile file system
 
-    Wifi::Instance().Init( 60 /*secs timeout to try connect*/);
+    Wifi::Instance().Init( indicator, 60/*secs timeout to try connect*/);
 
     // Wifi::Init blocks until success (or access point mode)
     // now we can initialize web server:
     WebServer::Instance().Init();
 
-    // LED on GPIO2:
-    {
-        gpio_config_t io_conf;
+    Relay relay { GPIO_NUM_12, true, true };  // open drain mode and low active
+    AnalogReader reader { GPIO_NUM_15/*sensor pwrsup*/, 10/*Hz*/, 100 /*values to store*/};
 
-        io_conf.pin_bit_mask = (1 << GPIO_NUM_2);      // blue LED onchip
-        io_conf.mode         = GPIO_MODE_OUTPUT;       // set as output mode
-        io_conf.pull_up_en   = GPIO_PULLUP_DISABLE;    // disable pull-up mode
-        io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;  // disable pull-down mode
-        io_conf.intr_type    = GPIO_INTR_DISABLE;      // disable interrupt
-
-        gpio_config( &io_conf );    // configure GPIO with the given settings
-    }
-
-    AnalogReader reader;
-    if (! reader.Init( 10/*Hz*/, 100/*values to store*/, GPIO_NUM_15/*power supply to sensor*/ )) {
-        gpio_set_level( GPIO_NUM_2, 0 );        // low active -> steady on indicates error
+    if (!reader.Init()) {
+        indicator.Indicate( Indicator::STATUS_ERROR );
         while (true)
             vTaskDelay( portMAX_DELAY );
     }
-    Monitor monitor{reader};
 
-    // Switch switch{monitor};
+    Monitor monitor { reader };
+    Control control { reader, relay, 0x200, 0x80 }; // off: reaching 1/2 FS / on: falling below 1/8 FS
 
-    while (true) {
-        gpio_set_level( GPIO_NUM_2, 0 );        // low active -> flashing 1/10th second each second
-        vTaskDelay( configTICK_RATE_HZ / 10 );
-        gpio_set_level( GPIO_NUM_2, 1 );
-        vTaskDelay( (configTICK_RATE_HZ * 9) / 10 );
-    }
+    control.Run( indicator );
 }

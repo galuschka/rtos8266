@@ -13,6 +13,8 @@
 #include "esp_event_base.h"
 #include "tcpip_adapter.h"
 
+class Indicator;
+
 class Wifi
 {
 private:
@@ -32,7 +34,7 @@ private:
     Wifi();
 public:
     static Wifi& Instance();
-    void Init( int connTimoInSecs );
+    void Init( Indicator & indicator, int connTimoInSecs );
     u32_t GetIpAddr()
     {
         return mIpAddr.addr;

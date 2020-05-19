@@ -19,7 +19,8 @@ static const char *TAG = "WebServer";
 
 #define SendCharsChunk( req, chararray )  httpd_resp_send_chunk( req, chararray, sizeof(chararray) - 1 )
 
-namespace {
+namespace
+{
 void SendStringChunk( httpd_req_t * req, const char * string )
 {
     httpd_resp_send_chunk( req, string, strlen( string ) );
@@ -565,9 +566,10 @@ WebServer& WebServer::Instance()
     return webserver;
 }
 
-void WebServer::AddPage( const WebServer::Page & page, const httpd_uri_t * postUri )
+void WebServer::AddPage( const WebServer::Page & page,
+        const httpd_uri_t * postUri )
 {
-    PageList * elem = new PageList{ page };
+    PageList *elem = new PageList { page };
     if (LastElem) {
         LastElem->Next = elem;
     } else {
@@ -575,7 +577,7 @@ void WebServer::AddPage( const WebServer::Page & page, const httpd_uri_t * postU
     }
     LastElem = elem;
 
-    httpd_register_uri_handler( server, & page.Uri );
+    httpd_register_uri_handler( server, &page.Uri );
     if (postUri)
         httpd_register_uri_handler( server, postUri );
 }
@@ -601,8 +603,7 @@ void WebServer::MainPage( httpd_req_t * req )
     }
     SendCharsChunk( req, s_br );
 
-    for (PageList * elem = Anchor; elem; elem = elem->Next)
-    {
+    for (PageList *elem = Anchor; elem; elem = elem->Next) {
         SendCharsChunk( req, s_br );
         SendStringChunk( req, "<a href=\"" );
         SendStringChunk( req, elem->Page.Uri.uri );

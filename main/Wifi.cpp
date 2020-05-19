@@ -6,6 +6,7 @@
  */
 
 #include "Wifi.h"
+#include "Indicator.h"
 
 #include <string.h>         // strncpy()
 
@@ -143,11 +144,12 @@ void Wifi::ModeAp()
     {
         uint8_t mac[6];
         esp_read_mac( mac, ESP_MAC_WIFI_SOFTAP );
-        const esp_app_desc_t * const app_description = esp_ota_get_app_description();
+        const esp_app_desc_t *const app_description =
+                esp_ota_get_app_description();
         wifi_config.ap.ssid_len = snprintf( (char*) wifi_config.ap.ssid,
                 sizeof(wifi_config.ap.ssid), "%.*s-%02x-%02x-%02x",
-                sizeof(wifi_config.ap.ssid) - 10,
-                app_description->project_name, mac[3], mac[4], mac[5] );
+                sizeof(wifi_config.ap.ssid) - 10, app_description->project_name,
+                mac[3], mac[4], mac[5] );
         wifi_config.ap.ssid[sizeof(wifi_config.ap.ssid) - 1] = 0;
     }
     wifi_config.ap.max_connection = 4;
@@ -165,7 +167,7 @@ void Wifi::ModeAp()
     mMode = MODE_ACCESSPOINT;
 }
 
-void Wifi::Init( int connTimoInSecs )
+void Wifi::Init( Indicator & indicator, int connTimoInSecs )
 {
     wifi_init_config_t wifi_init_config = WIFI_INIT_CONFIG_DEFAULT()
     ;
@@ -175,8 +177,13 @@ void Wifi::Init( int connTimoInSecs )
             esp_event_handler_register( WIFI_EVENT, ESP_EVENT_ANY_ID, & wifi_event, this ) );
 
     if (!mSsid[0]) {
+        indicator.Indicate( Indicator::STATUS_AP );
         ModeAp();
-    } else if (!ModeSta( connTimoInSecs )) {
-        ModeAp();
+    } else {
+        indicator.Indicate( Indicator::STATUS_CONNECT );
+        if (!ModeSta( connTimoInSecs )) {
+            indicator.Indicate( Indicator::STATUS_AP );
+            ModeAp();
+        }
     }
 }

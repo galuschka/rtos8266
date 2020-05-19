@@ -20,7 +20,7 @@ public:
 
     void Show( struct httpd_req * req );
 private:
-    AnalogReader & Reader;
+    AnalogReader &Reader;
 };
 
 #endif /* MAIN_MONITOR_H_ */

@@ -19,11 +19,11 @@ class AnalogReader
 public:
     typedef unsigned short value_t;
 
-    AnalogReader();
+    AnalogReader( gpio_num_t gpioSensorPwrSply, int frequency, int dimStore );
     ~AnalogReader();
 
     // create and run the thread - read values with given frequency
-    bool Init( int frequency, int dimStore, gpio_num_t gpioSensorPwrSply );
+    bool Init();
     void GetValues( value_t * dest, int dim ) const; // copy last <dim> values to <dest> array
 
     value_t Average( int num ) const; // return average of the last <num> values
@@ -31,14 +31,14 @@ public:
     void Run(); // internal thread function
 
 private:
-    const value_t * ValuePtr( const value_t * start, int index ) const; // relative start (wrapped)
+    const value_t* ValuePtr( const value_t * start, int index ) const; // relative start (wrapped)
 
     TaskHandle_t TaskHandle;
-    value_t * Store;     // the value array
-    value_t * StorePtr;  // write pointer
-    value_t * StoreEnd;  // wrap margin (= Store + dimStore)
-    int       DimStore;  // save the dimension
-    int       Delay;     // delay for thread routine
+    value_t *Store;     // the value array
+    value_t *StorePtr;  // write pointer
+    value_t *StoreEnd;  // wrap margin (= Store + dimStore)
+    int DimStore;  // save the dimension
+    int Delay;     // delay for thread routine
     gpio_num_t GpioPwr;  // to switch sensor power supply
 };
 

@@ -15,12 +15,18 @@
 
 const char *const TAG = "AnalogReader";
 
-AnalogReader::AnalogReader() :
-        TaskHandle { 0 }, Store { 0 }, StorePtr { 0 }, StoreEnd { 0 }, DimStore {
-                0 }, Delay { 0 }, GpioPwr { GPIO_NUM_MAX }
+//@formatter:off
+AnalogReader::AnalogReader( gpio_num_t gpioSensorPwrSply, int frequency, int dimStore )
+                            : TaskHandle    { 0 },
+                              Store         { 0 },
+                              StorePtr      { 0 },
+                              StoreEnd      { 0 },
+                              DimStore      { dimStore },
+                              Delay         { (int)(configTICK_RATE_HZ / frequency) },
+                              GpioPwr       { gpioSensorPwrSply }
 {
+//@formatter:on
 }
-
 AnalogReader::~AnalogReader()
 {
     int delay = Delay;
@@ -34,7 +40,7 @@ AnalogReader::~AnalogReader()
     StorePtr = 0;
     StoreEnd = 0;
     DimStore = 0;
-    GpioPwr  = GPIO_NUM_MAX;
+    GpioPwr = GPIO_NUM_MAX;
     free( tofree );
 }
 
@@ -64,7 +70,7 @@ void AnalogReader::Run()
     }
 }
 
-bool AnalogReader::Init( int frequency, int dimStore, gpio_num_t gpioSensorPwrSply )
+bool AnalogReader::Init( void )
 {
     {
         adc_config_t adc_config;
@@ -78,43 +84,36 @@ bool AnalogReader::Init( int frequency, int dimStore, gpio_num_t gpioSensorPwrSp
         }
     }
 
-    Store = (value_t*) calloc( dimStore, sizeof(value_t) );
+    Store = (value_t*) calloc( DimStore, sizeof(value_t) );
     if (!Store) {
-        ESP_LOGE( TAG, "low memory: allocating %d x %d bytes failed", dimStore,
+        ESP_LOGE( TAG, "low memory: allocating %d x %d bytes failed", DimStore,
                 sizeof(value_t) );
         return false;
     }
 
-    if (gpioSensorPwrSply != GPIO_NUM_MAX)
-    {
+    if (GpioPwr != GPIO_NUM_MAX) {
         gpio_config_t io_conf;
 
-        io_conf.pin_bit_mask = (1 << gpioSensorPwrSply);  // the pin
-        io_conf.mode         = GPIO_MODE_OUTPUT;          // set as output mode
-        io_conf.pull_up_en   = GPIO_PULLUP_DISABLE;       // disable pull-up mode
-        io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;     // disable pull-down mode
-        io_conf.intr_type    = GPIO_INTR_DISABLE;         // disable interrupt
+        io_conf.pin_bit_mask = (1 << GpioPwr);  // the pin
+        io_conf.mode = GPIO_MODE_OUTPUT;          // set as output mode
+        io_conf.pull_up_en = GPIO_PULLUP_DISABLE;       // disable pull-up mode
+        io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;  // disable pull-down mode
+        io_conf.intr_type = GPIO_INTR_DISABLE;         // disable interrupt
 
         gpio_config( &io_conf );    // configure GPIO with the given settings
     }
 
-    StoreEnd = Store + dimStore;    // beyond end
+    StoreEnd = Store + DimStore;    // beyond end
     StorePtr = Store;               // write pointer
-    DimStore = dimStore;
-    Delay    = configTICK_RATE_HZ / frequency;
-    GpioPwr  = gpioSensorPwrSply;
 
     xTaskCreate( PressureTask, "Pressure", /*stack size*/1024, this, /*prio*/1,
             &TaskHandle );
-    if (! TaskHandle) {
+    if (!TaskHandle) {
         ESP_LOGE( TAG, "xTaskCreate failed" );
         free( Store );
         Store = 0;
         StorePtr = 0;
         StoreEnd = 0;
-        DimStore = 0;
-        Delay    = 0;
-        GpioPwr  = GPIO_NUM_MAX;
         return false;
     }
 
