@@ -623,7 +623,7 @@ void WebServer::Init()
 
     AddPage( page_wifi, &uri_post_wifi );
 
-    if (Wifi::Instance().StationMode()) {
+    if (1 || Wifi::Instance().StationMode()) {
         AddPage( page_update, &uri_post_update );
     }
     // AddPage( page_reboot, &uri_post_reboot );

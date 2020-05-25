@@ -44,7 +44,7 @@ extern "C" esp_err_t monitor_get( httpd_req_t * req )
 Monitor::Monitor( AnalogReader & analog_reader ) :
         Reader { analog_reader }
 {
-    if (Wifi::Instance().StationMode()) {
+    if (1 || Wifi::Instance().StationMode()) {
         s_monitor = this;
         WebServer::Instance().AddPage( s_page, 0 );
     }
@@ -69,7 +69,7 @@ void Monitor::Show( struct httpd_req * req ) const
         X_LABEL = 75,  // points reserved for 1st label text
         GROUP_IND = 50, // label indent per group
         X0 = X_LABEL + ((GROUP_IND * 5) / 2),
-        DIM_X = X0 + (N * FACTOR_X),
+        DIM_X = X0 + ((N - 1) * FACTOR_X) + 1,
     };
     static const char *const color[] = { "#777", "#4c4", "#c44" };
 
@@ -122,7 +122,7 @@ void Monitor::Show( struct httpd_req * req ) const
 #define Y(v)    (Y0 - (int) (((v) - minmax[0][0]) * scaleY))
 
     static char s_data1[] =
-            "<head><meta http-equiv=\"refresh\" content=\"1\"></head>\n"
+            "<head><meta http-equiv=\"refresh\" content=\"5\"></head>\n"
                     "<body>\n";
     static char s_data9[] = "</body>\n";
 

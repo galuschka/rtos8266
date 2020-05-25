@@ -85,7 +85,7 @@ Control::Control( AnalogReader & reader, Relay & relay, thres_t thresOff, thres_
     mRelay.AutoOn( false );
     mRelay.SetMode( Relay::MODE_AUTO );
 
-    if (Wifi::Instance().StationMode()) {
+    if (1 || Wifi::Instance().StationMode()) {
         s_control = this;
         WebServer::Instance().AddPage( s_page, 0 );
     }

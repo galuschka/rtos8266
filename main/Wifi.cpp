@@ -199,6 +199,9 @@ void Wifi::Init( Indicator & indicator, int connTimoInSecs )
     ESP_ERROR_CHECK(
             esp_event_handler_register( IP_EVENT, ESP_EVENT_ANY_ID, & ip_event, this ) );
 
+#if 0
+    ModeAp();
+#else
     if (!mSsid[0]) {
         indicator.Indicate( Indicator::STATUS_AP );
         ModeAp();
@@ -206,7 +209,8 @@ void Wifi::Init( Indicator & indicator, int connTimoInSecs )
         indicator.Indicate( Indicator::STATUS_CONNECT );
         if (!ModeSta( connTimoInSecs )) {
             indicator.Indicate( Indicator::STATUS_AP );
-            ModeAp();
+            ModeAp(); // just in !ModeSta()?
         }
     }
+#endif
 }
