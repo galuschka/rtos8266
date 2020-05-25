@@ -20,7 +20,9 @@ class Wifi
 private:
     enum
     {
-        GOT_IPV4_BIT = 1 << 0,
+        GOT_IPV4_BIT   = 1 << 0,
+        LOST_IPV4_BIT  = 1 << 1,
+        NEW_CLIENT_BIT = 1 << 2,
     };
     enum
     {
@@ -61,6 +63,8 @@ public:
     void Event( esp_event_base_t event_base, int32_t event_id,
             void * event_data );
     void GotIp( ip_event_got_ip_t * event_data );
+    void LostIp();
+    void NewClient( ip_event_ap_staipassigned_t * event );
 private:
     void ReadParam();
     void ModeAp();

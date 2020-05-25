@@ -15,6 +15,8 @@ struct httpd_req;
 class Monitor
 {
 public:
+    typedef AnalogReader::value_t value_t;
+
     Monitor( AnalogReader & analog );
     ~Monitor();
 

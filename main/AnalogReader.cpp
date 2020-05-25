@@ -56,8 +56,10 @@ void AnalogReader::Run()
 {
     while (Delay) {
         uint16_t val;
-        if (GpioPwr != GPIO_NUM_MAX)
+        if (GpioPwr != GPIO_NUM_MAX) {
             gpio_set_level( GpioPwr, 1 );
+            vTaskDelay( 2 );
+        }
         const esp_err_t err = adc_read( &val );
         if (GpioPwr != GPIO_NUM_MAX)
             gpio_set_level( GpioPwr, 0 );
@@ -70,7 +72,10 @@ void AnalogReader::Run()
             if (StorePtr >= StoreEnd)
                 StorePtr -= DimStore;
         }
-        vTaskDelay( Delay );
+        if (GpioPwr != GPIO_NUM_MAX)
+            vTaskDelay( Delay - 2 );
+        else
+            vTaskDelay( Delay );
     }
 }
 

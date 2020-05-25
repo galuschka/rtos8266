@@ -10,7 +10,7 @@
  *                        | |        o|           <- wifi antenna and LED
  *
  *               /RST   - RST        TX - GPIO1
- *               ADC0   - A0         RX - GPIO3
+ * sensor <---   ADC0   - A0         RX - GPIO3
  *               GPIO16 - D0         D1 - GPIO5   ---> sensor power supply
  * unlock <---   GPIO14 - D5         D2 - GPIO4   ---> relay
  *               GPIO12 - D6         D3 - GPIO0

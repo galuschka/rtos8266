@@ -20,6 +20,7 @@ class AnalogReader
 {
 public:
     typedef unsigned short value_t;
+    enum { MAX_VALUE = 0x03ff };   // 10 bit ADC
 
     AnalogReader( gpio_num_t gpioSensorPwrSply, Relay & relay );
     ~AnalogReader();

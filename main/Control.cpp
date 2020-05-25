@@ -218,7 +218,7 @@ void SendConfigRow( struct httpd_req * req, const char * key, float min, float m
 {
     char str[10];
 
-    SendStringChunk( req, "<tr><td>" );
+    SendStringChunk( req, "   <tr><td>" );
     SendStringChunk( req, title );
     SendStringChunk( req, "</td><td align=\"right\"><input type=\"number" );
     SendStringChunk( req, "\" name=\""  ); SendStringChunk( req, key );
@@ -228,7 +228,7 @@ void SendConfigRow( struct httpd_req * req, const char * key, float min, float m
     SendStringChunk( req, "\" step=\""  ); snprintf( str, sizeof(str), "%f", pow( 10,-decimals ) ); SendStringChunk( req, str );
     SendStringChunk( req, "\" /></td><td>" );
     SendStringChunk( req, unit );
-    SendStringChunk( req, "</td></tr>" );
+    SendStringChunk( req, "</td></tr>\n" );
 }
 }
 
@@ -274,13 +274,13 @@ void Control::Setup( struct httpd_req * req )
         free( buf );
         WriteParam();
     }
-    static char s_data1[] = "<body>"
-                            "<form>"
-                            "<table border=0>";
-    static char s_data9[] = "</table>"
-                            "<button type=\"submit\">submit</button>"
-                            "</form>"
-                            "</body>";
+    static char s_data1[] = "<body>\n"
+                            " <form>\n"
+                            "  <table border=0>\n";
+    static char s_data9[] = "  </table>\n"
+                            "  <button type=\"submit\">submit</button>\n"
+                            " </form>\n"
+                            "</body>\n";
 
     SendCharsChunk( req, s_data1 );
 

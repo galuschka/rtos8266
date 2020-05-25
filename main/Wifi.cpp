@@ -86,15 +86,27 @@ void Wifi::Event( esp_event_base_t event_base, int32_t event_id,
     } else if (event_id == WIFI_EVENT_AP_STADISCONNECTED) {
         wifi_event_ap_stadisconnected_t *event =
                 (wifi_event_ap_stadisconnected_t*) event_data;
-        ESP_LOGI( TAG, "station " MACSTR " leave, AID=%d", MAC2STR(event->mac),
+        ESP_LOGE( TAG, "station " MACSTR " leave, AID=%d", MAC2STR(event->mac),
                 event->aid );
     }
 }
 
-extern "C" void got_ip( void * wifi, esp_event_base_t event_base,
+extern "C" void ip_event( void * wifi, esp_event_base_t event_base,
         int32_t event_id, void * event_data )
 {
-    ((Wifi*) wifi)->GotIp( (ip_event_got_ip_t*) event_data );
+    switch (event_id) {
+    case IP_EVENT_STA_GOT_IP:
+        ((Wifi*) wifi)->GotIp( (ip_event_got_ip_t*) event_data );
+        break;
+    case IP_EVENT_STA_LOST_IP:
+        ((Wifi*) wifi)->LostIp();
+        break;
+    case IP_EVENT_AP_STAIPASSIGNED:
+        ((Wifi*) wifi)->NewClient( (ip_event_ap_staipassigned_t*) event_data );
+        break;
+    default:
+        break;
+    }
 }
 
 void Wifi::GotIp( ip_event_got_ip_t * event )
@@ -103,15 +115,22 @@ void Wifi::GotIp( ip_event_got_ip_t * event )
     xEventGroupSetBits( mConnectEventGroup, GOT_IPV4_BIT );
 }
 
+void Wifi::LostIp( void )
+{
+    memset( &mIpAddr, 0, sizeof(ip4_addr_t) );
+    xEventGroupSetBits( mConnectEventGroup, LOST_IPV4_BIT );
+}
+
+void Wifi::NewClient( ip_event_ap_staipassigned_t * event )
+{
+    xEventGroupSetBits( mConnectEventGroup, NEW_CLIENT_BIT );
+}
+
 bool Wifi::ModeSta( int connTimoInSecs )
 {
     mMode = MODE_CONNECTING;
 
     ESP_LOGI( TAG, "Connecting to \"%s\" ...", mSsid );
-
-    ESP_ERROR_CHECK(
-            esp_event_handler_register( IP_EVENT, IP_EVENT_STA_GOT_IP, &got_ip,
-                    this ) );
 
     wifi_config_t wifi_config;
     memset( &wifi_config, 0, sizeof(wifi_config_t) );
@@ -159,9 +178,9 @@ void Wifi::ModeAp()
 
     ESP_LOGI( TAG, "Setup AP \"%s\" ...", wifi_config.ap.ssid );
     if ( LOG_LOCAL_LEVEL >= ESP_LOG_INFO)
-        vTaskDelay( 1 ); // output collides with esp_wifi_set_mode() output
+        vTaskDelay( 1 );      // output collides with esp_wifi_set_mode() output
     ESP_ERROR_CHECK( esp_wifi_set_mode( WIFI_MODE_AP ) );
-    ESP_ERROR_CHECK( esp_wifi_set_config( ESP_IF_WIFI_AP, &wifi_config ) );
+    ESP_ERROR_CHECK( esp_wifi_set_config( ESP_IF_WIFI_AP, & wifi_config ) );
     ESP_ERROR_CHECK( esp_wifi_start() );
 
     mMode = MODE_ACCESSPOINT;
@@ -175,6 +194,8 @@ void Wifi::Init( Indicator & indicator, int connTimoInSecs )
     ESP_ERROR_CHECK( esp_wifi_init( &wifi_init_config ) );
     ESP_ERROR_CHECK(
             esp_event_handler_register( WIFI_EVENT, ESP_EVENT_ANY_ID, & wifi_event, this ) );
+    ESP_ERROR_CHECK(
+            esp_event_handler_register( IP_EVENT, ESP_EVENT_ANY_ID, & ip_event, this ) );
 
     if (!mSsid[0]) {
         indicator.Indicate( Indicator::STATUS_AP );
