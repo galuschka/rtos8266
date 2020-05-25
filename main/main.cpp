@@ -3,6 +3,20 @@
  *
  *  Created on: 05.05.2020
  *      Author: galuschka
+ *
+ * D1 mini's usable GPIOs: 4,5, 12,13,14
+ *                         ___   _   _
+ *                        | | |_| |_| |
+ *                        | |        o|           <- wifi antenna and LED
+ *
+ *               /RST   - RST        TX - GPIO1
+ *               ADC0   - A0         RX - GPIO3
+ *               GPIO16 - D0         D1 - GPIO5   ---> sensor power supply
+ * unlock <---   GPIO14 - D5         D2 - GPIO4   ---> relay
+ *               GPIO12 - D6         D3 - GPIO0
+ *               GPIO13 - D7         D4 - GPIO2  (onboard LED)
+ *               GPIO15 - D8         G  - GND
+ *                      - 3V3        5V - power supply
  */
 
 #include "Wifi.h"
@@ -21,7 +35,7 @@
 
 #include "driver/gpio.h"    // gpio_config(), gpio_set_level()
 
-static const char *TAG = "MAIN";
+static const char *TAG = "main";
 
 void main_nvs_init()
 {
@@ -46,7 +60,7 @@ void main_nvs_init()
 extern "C" void app_main()
 {
     // LED on GPIO2:
-    Indicator indicator { GPIO_NUM_2 };         // blue onchip LED
+    Indicator indicator { GPIO_NUM_2 };         // blue onboard LED
     indicator.Init();
 
     main_nvs_init();  // initialize non-volatile file system
@@ -57,10 +71,10 @@ extern "C" void app_main()
     // now we can initialize web server:
     WebServer::Instance().Init();
 
-    Relay relay { GPIO_NUM_12, true, true };  // open drain mode and low active
-    AnalogReader reader { GPIO_NUM_15/*sensor pwrsup*/, 10/*Hz*/, 100 /*values to store*/};
+    Relay        relay  { GPIO_NUM_4, true, true };  // open drain mode and low active
+    AnalogReader reader { GPIO_NUM_5, relay };       // power supply to sensor
 
-    if (!reader.Init()) {
+    if (!reader.Init( 10/*Hz*/, 100 /*values to store*/ )) {
         indicator.Indicate( Indicator::STATUS_ERROR );
         while (true)
             vTaskDelay( portMAX_DELAY );

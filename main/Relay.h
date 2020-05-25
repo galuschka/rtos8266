@@ -23,6 +23,11 @@ public:
     };
     Relay( gpio_num_t pin, bool openDrain = false, bool lowActive = false );
 
+    bool Status()
+    {
+        return Active;
+    }
+
     void SetMode( GenMode newMode );
     void AutoOn( bool on );  // switch on/off by controlling module
 
@@ -32,13 +37,13 @@ public:
 private:
     void RealOn( bool on );  // internal switch method (-> sets Active)
 
-    gpio_num_t Pin;            // pin, connected to the relay
-    GenMode Mode;           // OFF/AUTO/ON
-    bool Active;         // "active" status of the pin
-    bool AutoActive;     // set by AutoOn()
-    bool LowActive;      // inverse logic
-    TickType_t Ticks;          // total running time in ticks
-    TickType_t SwitchTime;     // tick value, when switched
+    gpio_num_t Pin;          // pin, connected to the relay
+    GenMode Mode;            // OFF/AUTO/ON
+    bool Active;             // "active" status of the pin
+    bool AutoActive;         // set by AutoOn()
+    bool LowActive;          // inverse logic
+    TickType_t Ticks;        // total running time in ticks
+    TickType_t SwitchTime;   // tick value, when switched
 };
 
 #endif /* MAIN_RELAY_H_ */

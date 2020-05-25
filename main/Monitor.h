@@ -18,7 +18,7 @@ public:
     Monitor( AnalogReader & analog );
     ~Monitor();
 
-    void Show( struct httpd_req * req );
+    void Show( struct httpd_req * req ) const;
 private:
     AnalogReader &Reader;
 };

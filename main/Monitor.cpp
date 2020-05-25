@@ -53,30 +53,106 @@ Monitor::~Monitor()
     s_monitor = 0;
 }
 
-void Monitor::Show( struct httpd_req * req )
+void Monitor::Show( struct httpd_req * req ) const
 {
+    static const char * const color[] = { "#000", "#4c4", "#c48" };
+
+    const int n = 100;
+    AnalogReader::value_t val[n];
+    Reader.GetValues( val, n );
+    AnalogReader::value_t minmax[3][2];
+    int set = 0;
+    for (int i = 0; i < n; ++i) {
+        AnalogReader::value_t const v = val[i] & 0x03ff;
+        if (val[i] & 0x8000) {
+            if (!(set & 2)) {
+                set |= 2;
+                minmax[2][0] = minmax[2][1] = v;
+            } else if (minmax[2][0] > v)
+                minmax[2][0] = v;
+            else if (minmax[2][1] < v)
+                minmax[2][1] = v;
+        } else {
+            if (!(set & 1)) {
+                set |= 1;
+                minmax[1][0] = minmax[1][1] = v;
+            } else if (minmax[1][0] > v)
+                minmax[1][0] = v;
+            else if (minmax[1][1] < v)
+                minmax[1][1] = v;
+        }
+    }
+    // minmax[0][0] = minmax[1][0] < minmax[2][0] ? minmax[1][0] : minmax[2][0];
+    // minmax[0][1] = minmax[1][1] > minmax[2][1] ? minmax[1][1] : minmax[2][1];
+    minmax[0][0] = 0;
+    minmax[0][1] = 0x03ff;
+
     static char s_data1[] =
-            "<head><meta http-equiv=\"refresh\" content=\"1\"></head>"
-                    "<body>"
-                    "<table border=0>";
-    static char s_data9[] = "</table>"
-            "</body>";
+            "<head><meta http-equiv=\"refresh\" content=\"1\"></head>\n"
+                    "<body>\n"
+                    "<svg viewBox=\"0 0 1200 530\" class=\"chart\">\n";
+    static char s_data9[] = "\n</svg>\n"
+            "</body>\n";
 
     SendCharsChunk( req, s_data1 );
 
-    AnalogReader::value_t val[100];
-    Reader.GetValues( val, sizeof(val) / sizeof(val[0]) );
-    for (int r = 0; r < 10; ++r) {
-        SendStringChunk( req, "<tr align=\"right\">" );
-        for (int c = 0; c < 10; ++c) {
-            SendStringChunk( req, "<td>" );
-            char str[10];
-            snprintf( str, sizeof(str), "%u", val[r * 10 + c] );
-            SendStringChunk( req, str );
-            SendStringChunk( req, "</td>" );
+    char buf[80];
+    set = 0;
+
+    SendStringChunk( req,
+            " <text text-anchor=\"end\" dominant-baseline=\"central\">\n" );
+    for (int group = 0; group < 3; ++group) {
+        for (int kind = 0; kind < 2; ++kind) {
+            // we have 32 bits to reserve ranges of values 0..1023
+            // 3 bits will be set on each ->  1024 / 29 = 35,3
+            if (!(set & (2 << (minmax[group][kind] / 36)))) {
+                set |= (7 << (minmax[group][kind] / 36));
+                snprintf( buf, sizeof(buf),
+                        "  <tspan x=\"90\" y=\"%d\">%d</tspan>\n",
+                        520 - (minmax[group][kind] >> 1), minmax[group][kind] );
+                SendStringChunk( req, buf );
+            }
         }
-        SendStringChunk( req, "</tr>" );
     }
+    SendStringChunk( req, " </text>\n" );
+
+    for (int group = 0; group < 3; ++group) {
+        for (int kind = 0; kind < 2; ++kind) {
+            snprintf( buf, sizeof(buf),
+                    "  <line x1=\"100\" x2=\"190\" y1=\"%d\" y2=\"%d\" stroke=\"%s\" stroke-width=\"1\" />\n",
+                    520 - (minmax[group][kind] >> 1),
+                    520 - (minmax[group][kind] >> 1),
+                    color[group] );
+            SendStringChunk( req, buf );
+        }
+    }
+
+    set = 0;
+    for (int i = 0; i < n; ++i) {
+        AnalogReader::value_t const v = val[i] & 0x03ff;
+        if (set) {
+            snprintf( buf, sizeof(buf), " %d,%d", 200 + i * 10,
+                    520 - (v >> 1) );
+            SendStringChunk( req, buf );
+        }
+        int group = (val[i] & 0x8000) ? 2 : 1;
+        if (set != group) {
+            if (set)
+                SendStringChunk( req, "\" />\n" );
+            set = group;
+            snprintf( buf, sizeof(buf), " <polyline fill=\"none\""
+                    " stroke=\"%s\""
+                    " stroke-width=\"3\""
+                    " points=\""
+                    "%d,%d",
+                    color[group],
+                    200 + i * 10,
+                    520 - (v >> 1) );
+            SendStringChunk( req, buf );
+        }
+    }
+    if (set)
+        SendStringChunk( req, "\" />\n" );
 
     SendCharsChunk( req, s_data9 );
 

@@ -13,16 +13,19 @@
 #include "esp_log.h"        // ESP_LOGE()
 #include "driver/adc.h"     // adc_init(), adc_read()
 
+#include "Relay.h"
+
 const char *const TAG = "AnalogReader";
 
 //@formatter:off
-AnalogReader::AnalogReader( gpio_num_t gpioSensorPwrSply, int frequency, int dimStore )
-                            : TaskHandle    { 0 },
+AnalogReader::AnalogReader( gpio_num_t gpioSensorPwrSply, Relay &relay )
+                            : mRelay        { relay },
+                              TaskHandle    { 0 },
                               Store         { 0 },
                               StorePtr      { 0 },
                               StoreEnd      { 0 },
-                              DimStore      { dimStore },
-                              Delay         { (int)(configTICK_RATE_HZ / frequency) },
+                              DimStore      { 0 },
+                              Delay         { 0 },
                               GpioPwr       { gpioSensorPwrSply }
 {
 //@formatter:on
@@ -62,6 +65,7 @@ void AnalogReader::Run()
         if (err != ESP_OK) {
             ESP_LOGE( TAG, "adc_read() failed: %d", err );
         } else {
+            val |= mRelay.Status() << 15;
             *StorePtr++ = val;
             if (StorePtr >= StoreEnd)
                 StorePtr -= DimStore;
@@ -70,7 +74,7 @@ void AnalogReader::Run()
     }
 }
 
-bool AnalogReader::Init( void )
+bool AnalogReader::Init( int frequency, int dimStore )
 {
     {
         adc_config_t adc_config;
@@ -84,9 +88,9 @@ bool AnalogReader::Init( void )
         }
     }
 
-    Store = (value_t*) calloc( DimStore, sizeof(value_t) );
+    Store = (value_t*) calloc( dimStore, sizeof(value_t) );
     if (!Store) {
-        ESP_LOGE( TAG, "low memory: allocating %d x %d bytes failed", DimStore,
+        ESP_LOGE( TAG, "low memory: allocating %d x %d bytes failed", dimStore,
                 sizeof(value_t) );
         return false;
     }
@@ -103,8 +107,10 @@ bool AnalogReader::Init( void )
         gpio_config( &io_conf );    // configure GPIO with the given settings
     }
 
-    StoreEnd = Store + DimStore;    // beyond end
+    DimStore = dimStore;
+    StoreEnd = Store + dimStore;    // beyond end
     StorePtr = Store;               // write pointer
+    Delay    = (int)(configTICK_RATE_HZ / frequency);
 
     xTaskCreate( PressureTask, "Pressure", /*stack size*/1024, this, /*prio*/1,
             &TaskHandle );
@@ -114,6 +120,8 @@ bool AnalogReader::Init( void )
         Store = 0;
         StorePtr = 0;
         StoreEnd = 0;
+        DimStore = 0;
+        Delay = 0;
         return false;
     }
 
@@ -154,7 +162,7 @@ AnalogReader::value_t AnalogReader::Average( int num ) const
     unsigned long sum = 0;
     const value_t *ptr = ValuePtr( StorePtr, -num );
     for (int i = num; i; --i) {
-        sum += *ptr++;
+        sum += (*ptr++ & 0x7fff);
         if (ptr >= StoreEnd)
             ptr -= DimStore;
     }
