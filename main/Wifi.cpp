@@ -78,16 +78,14 @@ extern "C" void wifi_event( void * wifi, esp_event_base_t event_base,
 void Wifi::Event( esp_event_base_t event_base, int32_t event_id,
         void * event_data )
 {
-    if (event_id == WIFI_EVENT_AP_STACONNECTED) {
-        wifi_event_ap_staconnected_t *event =
-                (wifi_event_ap_staconnected_t*) event_data;
-        ESP_LOGI( TAG, "station " MACSTR " join, AID=%d", MAC2STR(event->mac),
-                event->aid );
-    } else if (event_id == WIFI_EVENT_AP_STADISCONNECTED) {
-        wifi_event_ap_stadisconnected_t *event =
-                (wifi_event_ap_stadisconnected_t*) event_data;
-        ESP_LOGE( TAG, "station " MACSTR " leave, AID=%d", MAC2STR(event->mac),
-                event->aid );
+    if (event_id == WIFI_EVENT_STA_CONNECTED) {
+        wifi_event_sta_connected_t *event =
+                (wifi_event_sta_connected_t*) event_data;
+        ESP_LOGI( TAG, "joined to \"%s\"", event->ssid );
+    } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        ESP_LOGW( TAG, "left WLAN" );
+    } else {
+        ESP_LOGE( TAG, "unhandled wifi event %d", event_id );
     }
 }
 
@@ -96,15 +94,19 @@ extern "C" void ip_event( void * wifi, esp_event_base_t event_base,
 {
     switch (event_id) {
     case IP_EVENT_STA_GOT_IP:
+        ESP_LOGI( TAG, "ip event \"got ip address\"" );
         ((Wifi*) wifi)->GotIp( (ip_event_got_ip_t*) event_data );
         break;
     case IP_EVENT_STA_LOST_IP:
+        ESP_LOGW( TAG, "ip event \"lost ip address\"" );
         ((Wifi*) wifi)->LostIp();
         break;
     case IP_EVENT_AP_STAIPASSIGNED:
+        ESP_LOGI( TAG, "ip event \"new client ip address assignment\"" );
         ((Wifi*) wifi)->NewClient( (ip_event_ap_staipassigned_t*) event_data );
         break;
     default:
+        ESP_LOGI( TAG, "unhandled ip event %d", event_id );
         break;
     }
 }
@@ -177,7 +179,7 @@ void Wifi::ModeAp()
     // memcpy( wifi_config.ap.password, ???, sizeof(wifi_config.ap.password) );
 
     ESP_LOGI( TAG, "Setup AP \"%s\" ...", wifi_config.ap.ssid );
-    if ( LOG_LOCAL_LEVEL >= ESP_LOG_INFO)
+    if (LOG_LOCAL_LEVEL >= ESP_LOG_INFO)
         vTaskDelay( 1 );      // output collides with esp_wifi_set_mode() output
     ESP_ERROR_CHECK( esp_wifi_set_mode( WIFI_MODE_AP ) );
     ESP_ERROR_CHECK( esp_wifi_set_config( ESP_IF_WIFI_AP, & wifi_config ) );
