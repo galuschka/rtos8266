@@ -65,7 +65,7 @@ extern "C" void app_main()
 
     main_nvs_init();  // initialize non-volatile file system
 
-    Wifi::Instance().Init( indicator, 60/*secs timeout to try connect*/);
+    Wifi::Instance().Init( indicator, 0/*secs timeout to try connect/0:AP only*/);
 
     // Wifi::Init blocks until success (or access point mode)
     // now we can initialize web server:

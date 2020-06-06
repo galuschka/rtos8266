@@ -137,8 +137,8 @@ bool Wifi::ModeSta( int connTimoInSecs )
     wifi_config_t wifi_config;
     memset( &wifi_config, 0, sizeof(wifi_config_t) );
 
-    strncpy( (char*) &wifi_config.sta.ssid, mSsid, sizeof(mSsid) );
-    strncpy( (char*) &wifi_config.sta.password, mPassword, sizeof(mPassword) );
+    strncpy( (char*) wifi_config.sta.ssid, mSsid, sizeof(mSsid) );
+    strncpy( (char*) wifi_config.sta.password, mPassword, sizeof(mPassword) );
 
     ESP_ERROR_CHECK( esp_wifi_set_storage( WIFI_STORAGE_RAM ) );
     ESP_ERROR_CHECK( esp_wifi_set_mode( WIFI_MODE_STA ) );
@@ -147,7 +147,7 @@ bool Wifi::ModeSta( int connTimoInSecs )
     ESP_ERROR_CHECK( esp_wifi_connect() );
 
     if (!xEventGroupWaitBits( mConnectEventGroup, GOT_IPV4_BIT, true, true,
-    configTICK_RATE_HZ * connTimoInSecs )) {
+                              configTICK_RATE_HZ * connTimoInSecs )) {
         mMode = MODE_CONNECTFAILED;
         ESP_LOGW( TAG, "Connection to %s timed out - setup AP", mSsid );
         return false;
@@ -171,12 +171,13 @@ void Wifi::ModeAp()
                 sizeof(wifi_config.ap.ssid), "%.*s-%02x-%02x-%02x",
                 sizeof(wifi_config.ap.ssid) - 10, app_description->project_name,
                 mac[3], mac[4], mac[5] );
-        wifi_config.ap.ssid[sizeof(wifi_config.ap.ssid) - 1] = 0;
     }
-    wifi_config.ap.max_connection = 4;
-    wifi_config.ap.authmode = WIFI_AUTH_OPEN;
-    // wifi_config.ap.authmode     = WIFI_AUTH_WPA_WPA2_PSK;
-    // memcpy( wifi_config.ap.password, ???, sizeof(wifi_config.ap.password) );
+    if (mPassword[0]) {
+        wifi_config.ap.authmode = WIFI_AUTH_WPA_WPA2_PSK;
+        strncpy( (char*) wifi_config.ap.password, mPassword, sizeof(wifi_config.ap.password) );
+    } else
+        wifi_config.ap.authmode = WIFI_AUTH_OPEN;
+    wifi_config.ap.max_connection = 1;
 
     ESP_LOGI( TAG, "Setup AP \"%s\" ...", wifi_config.ap.ssid );
     if (LOG_LOCAL_LEVEL >= ESP_LOG_INFO)
@@ -199,18 +200,11 @@ void Wifi::Init( Indicator & indicator, int connTimoInSecs )
     ESP_ERROR_CHECK(
             esp_event_handler_register( IP_EVENT, ESP_EVENT_ANY_ID, & ip_event, this ) );
 
-#if 0
-    ModeAp();
-#else
-    if (!mSsid[0]) {
-        indicator.Indicate( Indicator::STATUS_AP );
-        ModeAp();
-    } else {
+    if (connTimoInSecs && mSsid[0]) {
         indicator.Indicate( Indicator::STATUS_CONNECT );
-        if (!ModeSta( connTimoInSecs )) {
-            indicator.Indicate( Indicator::STATUS_AP );
-            ModeAp(); // just in !ModeSta()?
-        }
+        if (ModeSta( connTimoInSecs ))
+            return;
     }
-#endif
+    indicator.Indicate( Indicator::STATUS_AP );
+    ModeAp();
 }
