@@ -73,7 +73,7 @@ void Monitor::Show( struct httpd_req * req ) const
     };
     static const char *const color[] = { "#777", "#4c4", "#c44" };
 
-    char buf[80];
+    char buf[100];
     value_t val[N];
     Reader.GetValues( val, N );
     value_t minmax[3][2];

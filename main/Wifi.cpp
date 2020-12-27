@@ -137,8 +137,8 @@ bool Wifi::ModeSta( int connTimoInSecs )
     wifi_config_t wifi_config;
     memset( &wifi_config, 0, sizeof(wifi_config_t) );
 
-    strncpy( (char*) wifi_config.sta.ssid, mSsid, sizeof(mSsid) );
-    strncpy( (char*) wifi_config.sta.password, mPassword, sizeof(mPassword) );
+    strncpy( (char*) wifi_config.sta.ssid, mSsid, sizeof(wifi_config.sta.ssid) );
+    strncpy( (char*) wifi_config.sta.password, mPassword, sizeof(wifi_config.sta.password) );
 
     ESP_ERROR_CHECK( esp_wifi_set_storage( WIFI_STORAGE_RAM ) );
     ESP_ERROR_CHECK( esp_wifi_set_mode( WIFI_MODE_STA ) );
