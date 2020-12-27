@@ -35,7 +35,7 @@
             			
             <storageModule moduleId="cdtBuildSystem" version="4.0.0">
                 				
-                <configuration artifactName="${ProjName}" buildProperties="" description="" id="com.espressif.esp32.managedbuild.cross.toolchain.base.1404362549" name="Default" optionalBuildProperties="org.eclipse.cdt.docker.launcher.containerbuild.property.volumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.selectedvolumes=" parent="org.eclipse.cdt.build.core.emptycfg">
+                <configuration artifactName="${ProjName}" buildProperties="" description="" id="com.espressif.esp32.managedbuild.cross.toolchain.base.1404362549" name="Default" optionalBuildProperties="org.eclipse.cdt.docker.launcher.containerbuild.property.selectedvolumes=,org.eclipse.cdt.docker.launcher.containerbuild.property.volumes=" parent="org.eclipse.cdt.build.core.emptycfg">
                     					
                     <folderInfo id="com.espressif.esp32.managedbuild.cross.toolchain.base.1404362549.1947243855" name="/" resourcePath="">
                         						
@@ -228,6 +228,12 @@
                         </toolChain>
                         					
                     </folderInfo>
+                    					
+                    <fileInfo id="com.espressif.esp32.managedbuild.cross.toolchain.base.1404362549.491371946" name="WebServer.cpp" rcbsApplicability="disable" resourcePath="main/WebServer.cpp" toolsToInvoke="com.espressif.esp32.managedbuild.cross.tool.cpp.compiler.1686001243.1641896095">
+                        						
+                        <tool id="com.espressif.esp32.managedbuild.cross.tool.cpp.compiler.1686001243.1641896095" name="Cross ESP32 GNU C++ Compiler" superClass="com.espressif.esp32.managedbuild.cross.tool.cpp.compiler.1686001243"/>
+                        					
+                    </fileInfo>
                     				
                 </configuration>
                 			
