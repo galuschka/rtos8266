@@ -47,8 +47,8 @@ void Wifi::ReadParam()
 
         nvs_close( my_handle );
     }
-    // if (mSsid[0])     ESP_LOGI( TAG, "SSID:     %s", mSsid     );
-    // if (mPassword[0]) ESP_LOGI( TAG, "password: %s", mPassword );
+    if (mSsid[0])     ESP_LOGI( TAG, "SSID:     %s", mSsid     );
+    if (mPassword[0]) ESP_LOGI( TAG, "password: %s", mPassword );
 }
 
 bool Wifi::SetParam( const char * ssid, const char * password )
@@ -191,20 +191,24 @@ void Wifi::ModeAp()
 
 void Wifi::Init( Indicator & indicator, int connTimoInSecs )
 {
-    wifi_init_config_t wifi_init_config = WIFI_INIT_CONFIG_DEFAULT()
-    ;
+    wifi_init_config_t wifi_init_config = WIFI_INIT_CONFIG_DEFAULT();
 
+    ESP_LOGW( TAG, "esp_wifi_init()" ); vTaskDelay( configTICK_RATE_HZ / 1 );
     ESP_ERROR_CHECK( esp_wifi_init( &wifi_init_config ) );
+    ESP_LOGW( TAG, "esp_event_handler_register(wifi_event)" ); vTaskDelay( configTICK_RATE_HZ / 10 );
     ESP_ERROR_CHECK(
             esp_event_handler_register( WIFI_EVENT, ESP_EVENT_ANY_ID, & wifi_event, this ) );
+    ESP_LOGW( TAG, "esp_event_handler_register(ip_event)" ); vTaskDelay( configTICK_RATE_HZ / 10 );
     ESP_ERROR_CHECK(
             esp_event_handler_register( IP_EVENT, ESP_EVENT_ANY_ID, & ip_event, this ) );
 
     if (connTimoInSecs && mSsid[0]) {
         indicator.Indicate( Indicator::STATUS_CONNECT );
+        ESP_LOGW( TAG, "ModeSta()" ); vTaskDelay( configTICK_RATE_HZ / 10 );
         if (ModeSta( connTimoInSecs ))
             return;
     }
     indicator.Indicate( Indicator::STATUS_AP );
+    ESP_LOGW( TAG, "ModeAp()" ); vTaskDelay( configTICK_RATE_HZ / 10 );
     ModeAp();
 }

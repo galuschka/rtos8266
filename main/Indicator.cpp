@@ -34,7 +34,7 @@ Indicator::Indicator( gpio_num_t pin ) :
 
 bool Indicator::Init()
 {
-    xTaskCreate( IndicatorTask, "Indicator", /*stack size*/1024, this, /*prio*/
+    xTaskCreate( IndicatorTask, "Indicator", /*stack size*/2048, this, /*prio*/
             1, &TaskHandle );
     if (!TaskHandle) {
         ESP_LOGE( TAG, "xTaskCreate failed" );

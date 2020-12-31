@@ -117,7 +117,7 @@ bool AnalogReader::Init( int frequency, int dimStore )
     StorePtr = Store;               // write pointer
     Delay    = (int)(configTICK_RATE_HZ / frequency);
 
-    xTaskCreate( PressureTask, "Pressure", /*stack size*/1024, this, /*prio*/1,
+    xTaskCreate( PressureTask, "Pressure", /*stack size*/2048, this, /*prio*/1,
             &TaskHandle );
     if (!TaskHandle) {
         ESP_LOGE( TAG, "xTaskCreate failed" );

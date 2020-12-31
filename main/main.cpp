@@ -17,6 +17,8 @@
  *               GPIO13 - D7         D4 - GPIO2  (onboard LED)
  *               GPIO15 - D8         G  - GND
  *                      - 3V3        5V - power supply
+ *
+ * pull down GPIO16 (D0) to put device into flash mode on boot up
  */
 
 #include "Wifi.h"
@@ -53,7 +55,9 @@ void main_nvs_init()
         }
     }
 
+    // ESP_LOGW( TAG, "esp_netif_init()" );
     ESP_ERROR_CHECK( esp_netif_init() );
+    //ESP_LOGW( TAG, "esp_event_loop_create_default()" );
     ESP_ERROR_CHECK( esp_event_loop_create_default() );
 }
 
@@ -63,14 +67,18 @@ extern "C" void app_main()
     Indicator indicator { GPIO_NUM_2 };         // blue onboard LED
     indicator.Init();
 
+    ESP_LOGW( TAG, "main_nvs_init()" ); vTaskDelay( configTICK_RATE_HZ / 1 );
     main_nvs_init();  // initialize non-volatile file system
 
+    ESP_LOGW( TAG, "Wifi::Instance().Init()" ); vTaskDelay( configTICK_RATE_HZ / 1 );
     Wifi::Instance().Init( indicator, 60/*secs timeout to try connect/0:AP only*/);
 
+    ESP_LOGW( TAG, "WebServer::Instance().Init()" );
     // Wifi::Init blocks until success (or access point mode)
     // now we can initialize web server:
     WebServer::Instance().Init();
 
+    ESP_LOGW( TAG, "reader.Init()" );
     Relay        relay  { GPIO_NUM_4, true, true };  // open drain mode and low active
     AnalogReader reader { GPIO_NUM_5, relay };       // power supply to sensor
 
@@ -80,8 +88,12 @@ extern "C" void app_main()
             vTaskDelay( portMAX_DELAY );
     }
 
+    ESP_LOGW( TAG, "monitor{}" );
     Monitor monitor { reader };
+    ESP_LOGW( TAG, "control{}" );
     Control control { reader, relay, 0x200, 0x80 }; // off: reaching 1/2 FS / on: falling below 1/8 FS
 
+    ESP_LOGW( TAG, "control.Run()" );
     control.Run( indicator );
+    ESP_LOGW( TAG, "exit" );
 }
