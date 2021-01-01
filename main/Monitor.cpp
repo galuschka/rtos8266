@@ -142,11 +142,13 @@ void Monitor::Show( struct httpd_req * req ) const
                     || (((minmax[group][1] - minmax[group][0]) * scaleY)
                             > FONT_SIZE)) {
                 snprintf( buf, sizeof(buf),
-                        "  <tspan style=\"fill: %s;\" x=\"%d\" y=\"%d\">%.*f%s&nbsp;%%</tspan>\n",
+                        "  <tspan style=\"fill: %s;\" x=\"%d\" y=\"%d\">",
                         color[group], (X_LABEL - 4) + (group * GROUP_IND),
-                        Y( minmax[group][kind] ),
-                        group ? 1 : 0,
-                        minmax[group][kind] * 100.0 / AnalogReader::MAX_VALUE,
+                        Y( minmax[group][kind] ));
+                SendStringChunk( req, buf ); // split cause compiler warning
+                snprintf( buf, sizeof(buf),
+                        "%.*f%s&nbsp;%%</tspan>\n",
+                        group ? 1 : 0, minmax[group][kind] * 100.0 / AnalogReader::MAX_VALUE,
                         group ? "" : "&puncsp;&nbsp;" );
                 SendStringChunk( req, buf );
             }
@@ -167,17 +169,25 @@ void Monitor::Show( struct httpd_req * req ) const
     SendStringChunk( req, " </text>\n" );
 
     snprintf( buf, sizeof(buf),
-            "  <line stroke=\"%s\" stroke-width=\"1\" x1=\"%d\" x2=\"%d\" y1=\"%d\" y2=\"%d\" />\n",
-            color[0], X0 - 1, X0 - 1, Y( minmax[0][1] ), Y( minmax[0][0] ) );
+            "  <line stroke=\"%s\" stroke-width=\"1\" ",
+            color[0] );
+    SendStringChunk( req, buf );  // split cause compiler warning
+    snprintf( buf, sizeof(buf),
+            "x1=\"%d\" x2=\"%d\" y1=\"%d\" y2=\"%d\" />\n",
+            X0 - 1, X0 - 1, Y( minmax[0][1] ), Y( minmax[0][0] ) );
     SendStringChunk( req, buf );
     for (group = 0; group < 3; ++group) {
         if (!cnt[group])
             continue;
         for (int kind = 0; kind < 2; ++kind) {
-            snprintf( buf,
-                    sizeof(buf), // stroke-dasharray=\"5,10\" does not work...
-                    "  <line stroke=\"%s\" stroke-width=\"1\" x1=\"%d\" x2=\"%d\" y1=\"%d\" y2=\"%d\" />\n",
-                    color[group], X_LABEL + (group * GROUP_IND), DIM_X,
+            // stroke-dasharray=\"5,10\" does not work...
+            snprintf( buf, sizeof(buf),
+                    "  <line stroke=\"%s\" stroke-width=\"1\" ",
+                    color[group] );
+            SendStringChunk( req, buf );  // split cause compiler warning
+            snprintf( buf, sizeof(buf),
+                    "x1=\"%d\" x2=\"%d\" y1=\"%d\" y2=\"%d\" />\n",
+                    X_LABEL + (group * GROUP_IND), DIM_X,
                     Y( minmax[group][kind] ), Y( minmax[group][kind] ) );
             SendStringChunk( req, buf );
         }

@@ -28,6 +28,8 @@ private:
     {
         MODE_IDLE,
         MODE_CONNECTING,
+        MODE_RECONNECTING,
+        MODE_WAITDHCP,
         MODE_CONNECTFAILED,
         MODE_ACCESSPOINT,
         MODE_STATION,
@@ -76,6 +78,7 @@ private:
     char mSsid[32];
     char mPassword[32];
     char mMode;
+    bool mReconnect;
 };
 
 #endif /* MAIN_WIFI_H_ */

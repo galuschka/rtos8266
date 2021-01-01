@@ -47,8 +47,11 @@ void Wifi::ReadParam()
 
         nvs_close( my_handle );
     }
-    // if (mSsid[0])     ESP_LOGI( TAG, "SSID:     %s", mSsid     );
-    // if (mPassword[0]) ESP_LOGI( TAG, "password: %s", mPassword );
+    if (!mSsid[0]) {
+        ESP_LOGI( TAG, "SSID not set" );
+    } else {
+        ESP_LOGI( TAG, "SSID \"%s\" (%s)", mSsid, mPassword[0] ? "password set" : "open WLAN" );
+    }
 }
 
 bool Wifi::SetParam( const char * ssid, const char * password )
@@ -82,8 +85,15 @@ void Wifi::Event( esp_event_base_t event_base, int32_t event_id,
         wifi_event_sta_connected_t *event =
                 (wifi_event_sta_connected_t*) event_data;
         ESP_LOGI( TAG, "joined to \"%s\"", event->ssid );
+        mMode = MODE_WAITDHCP;
     } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
         ESP_LOGW( TAG, "left WLAN" );
+        if (mMode != MODE_RECONNECTING) {
+            mMode = MODE_RECONNECTING;
+            ESP_LOGW( TAG, "re-connecting..." );
+            // esp_wifi_start();
+            esp_wifi_connect();
+        }
     } else {
         ESP_LOGE( TAG, "unhandled wifi event %d", event_id );
     }
@@ -137,8 +147,8 @@ bool Wifi::ModeSta( int connTimoInSecs )
     wifi_config_t wifi_config;
     memset( &wifi_config, 0, sizeof(wifi_config_t) );
 
-    strncpy( (char*) wifi_config.sta.ssid, mSsid, sizeof(mSsid) );
-    strncpy( (char*) wifi_config.sta.password, mPassword, sizeof(mPassword) );
+    strncpy( (char*) wifi_config.sta.ssid, mSsid, sizeof(wifi_config.sta.ssid) );
+    strncpy( (char*) wifi_config.sta.password, mPassword, sizeof(wifi_config.sta.password) );
 
     ESP_ERROR_CHECK( esp_wifi_set_storage( WIFI_STORAGE_RAM ) );
     ESP_ERROR_CHECK( esp_wifi_set_mode( WIFI_MODE_STA ) );

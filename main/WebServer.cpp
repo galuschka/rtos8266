@@ -57,7 +57,10 @@ extern "C" esp_err_t handler_get_wifi( httpd_req_t * req )
 //@formatter:on
 
     SendCharsChunk( req, s_data1 );
-    SendStringChunk( req, Wifi::Instance().GetSsid() );
+    const char * const id = Wifi::Instance().GetSsid();
+    if (id && *id) {  // do not send 0-sized data before final chunk
+        SendStringChunk( req, id );
+    }
     SendCharsChunk( req, s_data3 );
     httpd_resp_send_chunk( req, 0, 0 );
     return ESP_OK;
@@ -211,7 +214,7 @@ extern "C" esp_err_t handler_post_wifi( httpd_req_t * req )
         SendCharsChunk( req, s_msg );
         return ESP_OK;
     }
-#if 0
+#if 1
 	// ESP_LOGI( TAG, "received ssid \"%s\", password \"%s\"", id, pw );
 	if (! wifi.SetParam( id, pw )) {
 		const char s_err[] = "setting wifi parameter failed - try again";
@@ -220,7 +223,7 @@ extern "C" esp_err_t handler_post_wifi( httpd_req_t * req )
 
 	}
 #endif
-    const char s_ok[] = "configuration would have been set";
+    const char s_ok[] = "configuration has been set";
     SendCharsChunk( req, s_ok );
     return ESP_OK;
 }
