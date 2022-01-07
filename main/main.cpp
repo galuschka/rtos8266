@@ -10,30 +10,28 @@
  *                        | |        o|           <- wifi antenna and LED
  *
  *               /RST   - RST        TX - GPIO1
- * sensor <---   ADC0   - A0         RX - GPIO3
- *               GPIO16 - D0         D1 - GPIO5   ---> sensor power supply
- * unlock <---   GPIO14 - D5         D2 - GPIO4   ---> relay
- *               GPIO12 - D6         D3 - GPIO0
- *               GPIO13 - D7         D4 - GPIO2  (onboard LED)
- *               GPIO15 - D8         G  - GND
+ *               ADC0   - A0         RX - GPIO3
+ *               GPIO16 - D0         D1 - GPIO5   ---> col2
+ *   row2 <---   GPIO14 - D5         D2 - GPIO4   ---> col1
+ *   row0 <---   GPIO12 - D6         D3 - GPIO0   ---> col0
+ *   row1 <---   GPIO13 - D7         D4 - GPIO2  (onboard LED)
+ *   row2 <---   GPIO15 - D8         G  - GND
  *                      - 3V3        5V - power supply
  */
+static const unsigned char s_row[] = { 12,13,14,15 };
+static const unsigned char s_col[] = {  0, 4, 5 };
+#define NELEMENTS(x) (sizeof(x)/sizeof(x[0]))
 
 #include "Wifi.h"
 #include "WebServer.h"
 
 #include "Indicator.h"
-#include "AnalogReader.h"
-#include "Monitor.h"
-#include "Relay.h"
-#include "Control.h"
+#include "Pinpad.h"
 
 #include "esp_event.h"  // esp_event_loop_create_default()
 #include "esp_netif.h"  // esp_netif_init()
 #include "esp_log.h"    // ESP_LOGI()
 #include "nvs_flash.h"  // nvs_flash_init()
-
-#include "driver/gpio.h"    // gpio_config(), gpio_set_level()
 
 static const char *TAG = "main";
 
@@ -71,17 +69,7 @@ extern "C" void app_main()
     // now we can initialize web server:
     WebServer::Instance().Init();
 
-    Relay        relay  { GPIO_NUM_4, true, true };  // open drain mode and low active
-    AnalogReader reader { GPIO_NUM_5, relay };       // power supply to sensor
+    Pinpad pinpad{ s_col, NELEMENTS(s_col), s_row, NELEMENTS(s_row) };
 
-    if (!reader.Init( 10/*Hz*/, 100 /*values to store*/ )) {
-        indicator.Indicate( Indicator::STATUS_ERROR );
-        while (true)
-            vTaskDelay( portMAX_DELAY );
-    }
-
-    Monitor monitor { reader };
-    Control control { reader, relay, 0x200, 0x80 }; // off: reaching 1/2 FS / on: falling below 1/8 FS
-
-    control.Run( indicator );
+    pinpad.Run( indicator );
 }
