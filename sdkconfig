@@ -8,7 +8,7 @@ CONFIG_IDF_TARGET="esp8266"
 #
 # SDK tool configuration
 #
-CONFIG_SDK_TOOLPREFIX="xtensa-fsf-elf-"
+CONFIG_SDK_TOOLPREFIX="xtensa-lx106-elf-"
 CONFIG_BOOTLOADER_INIT_SPI_FLASH=y
 # CONFIG_BOOTLOADER_DISABLE_JTAG_IO is not set
 # CONFIG_BOOTLOADER_FAST_BOOT is not set
@@ -435,7 +435,7 @@ CONFIG_WPA_MBEDTLS_CRYPTO=y
 
 # Deprecated options for backward compatibility
 CONFIG_TARGET_PLATFORM="esp8266"
-CONFIG_TOOLPREFIX="xtensa-fsf-elf-"
+CONFIG_TOOLPREFIX="xtensa-lx106-elf-"
 CONFIG_FLASHMODE_QIO=y
 # CONFIG_FLASHMODE_QOUT is not set
 # CONFIG_FLASHMODE_DIO is not set
