@@ -28,6 +28,7 @@ public:
     Indicator( gpio_num_t pin );
     void Indicate( STATUS status );
     void Blink( uint8_t num );  // num = number of times on
+    void Steady( uint8_t on );  // steady on/off
     bool Init();
     void Run();  // internal thread routine
 private:

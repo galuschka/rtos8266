@@ -52,32 +52,41 @@ bool Indicator::Init()
 
 void Indicator::Indicate( Indicator::STATUS status )
 {
-    if (mStatus == status)
-        return;
-    mStatus = status;
+    long sigMask = 0;
     switch (mStatus) {
-    case STATUS_ERROR:      // |##################################...
-        mSigMask = 0;
+    case STATUS_ERROR:      // |#########|__|###|__|###|__|###|__|
+        sigMask = 0x23232328;
         break;
     case STATUS_AP:         // |###########################|_|#|_|
-        mSigMask = 0x111d;
+        sigMask = 0x111d;
         break;
     case STATUS_CONNECT:    // |###############################|_|
-        mSigMask = 0x1f;
+        sigMask = 0x1f;
         break;
     case STATUS_IDLE:       // |_______________________________|#|
-        mSigMask = 0xf1;
+        sigMask = 0xf1;
         break;
     case STATUS_ACTIVE:     // |################|________________|
-        mSigMask = 0x88;
+        sigMask = 0x88;
         break;
     }
+    mBlink = 0;
+    if (mSigMask == sigMask)
+        return;
+    mSigMask = sigMask;
     xSemaphoreGive( mSemaphore );
 }
 
 void Indicator::Blink( uint8_t num )
 {
     mBlink = num;
+    xSemaphoreGive( mSemaphore );
+}
+
+void Indicator::Steady( uint8_t on )
+{
+    mBlink = 0;
+    mSigMask = on ? 0 : -1;
     xSemaphoreGive( mSemaphore );
 }
 
@@ -88,23 +97,33 @@ void Indicator::Run()
         if (mBlink) {
             do {
                 gpio_set_level( mPin, 0 );
-                xSemaphoreTake( mSemaphore, configTICK_RATE_HZ / 16 );
+                vTaskDelay( configTICK_RATE_HZ / 16 );
                 gpio_set_level( mPin, 1 );
-                xSemaphoreTake( mSemaphore, configTICK_RATE_HZ / 16 );
+                vTaskDelay( configTICK_RATE_HZ / 16 );
             } while (--mBlink);
+            vTaskDelay( configTICK_RATE_HZ / 16 );
+            phase = 0;  // restart old modus
         }
 
-        if (!mSigMask) {
+        if (mSigMask == 0) {
             gpio_set_level( mPin, 0 );   // low active - switch on
             xSemaphoreTake( mSemaphore, portMAX_DELAY );
+            continue;
+        }
+        if (mSigMask == -1) {
+            gpio_set_level( mPin, 1 );   // low active - switch off
+            xSemaphoreTake( mSemaphore, portMAX_DELAY );
+            continue;
         }
 
-        if (++phase > 3)
+        if (++phase >= 8)
             phase = 0;
 
         int duration = (mSigMask >> (phase * 4)) & 0xf;
-        if (!duration)
-            continue;
+        if (!duration) {
+            phase = 0;
+            duration = mSigMask & 0xf;
+        }
 
         gpio_set_level( mPin, phase & 1 );
         xSemaphoreTake( mSemaphore, (duration * configTICK_RATE_HZ) / 8 );
