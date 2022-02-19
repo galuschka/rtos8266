@@ -11,10 +11,10 @@
  *
  *               /RST   - RST        TX - GPIO1
  *               ADC0   - A0         RX - GPIO3
- *               GPIO16 - D0         D1 - GPIO5   ---> col0
+ *   green <--   GPIO16 - D0         D1 - GPIO5   ---> col0
  *   row0 <---   GPIO14 - D5         D2 - GPIO4   ---> col1
  *   row1 <---   GPIO12 - D6         D3 - GPIO0   ---> col2
- *   row2 <---   GPIO13 - D7         D4 - GPIO2  (onboard LED)
+ *   row2 <---   GPIO13 - D7         D4 - GPIO2   ---> red (+ onboard LED)
  *   row3 <---   GPIO15 - D8         G  - GND
  *                      - 3V3        5V - power supply
  */
@@ -60,7 +60,7 @@ extern "C" void app_main()
     ESP_LOGI( TAG, "enter" ); sys_delay_ms(5000);
 
     // LED on GPIO2:
-    Indicator indicator { GPIO_NUM_2 };         // blue onboard LED
+    Indicator indicator { GPIO_NUM_2, GPIO_NUM_16 };         // red/green
     indicator.Init();
 
     ESP_LOGI( TAG, "vor main_nvs_init()" ); sys_delay_ms(100);

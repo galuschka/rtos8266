@@ -66,9 +66,13 @@ void Pinpad::RowsOutColsIn()
     gpio_config( &mOutConf ); // and rows are output
 }
 
+Indicator * s_indicatorPtr = 0;
+u8 s_lastNum = 16;
+
 void Pinpad::OnKeyPress( u8 num )
 {
     ESP_LOGI( TAG, "key %2d - mask = 0%o", num, 1 << num );
+    s_lastNum = num;
 }
 
 void Pinpad::OnMultiKey( u16 mask )
@@ -79,10 +83,20 @@ void Pinpad::OnMultiKey( u16 mask )
 void Pinpad::OnRelease()
 {
     ESP_LOGD( TAG, "key rel. (mask = 0)" );
+
+    if (s_lastNum == 7) {
+        vTaskDelay( 20 );
+        s_indicatorPtr->Access( 1 );
+    }
+    if (s_lastNum == 15) {
+        vTaskDelay( 20 );
+        s_indicatorPtr->Access( 0 );
+    }
 }
 
 void Pinpad::Run( Indicator & indicator )
 {
+    s_indicatorPtr = & indicator;
     while (true) {
         vTaskDelay( configTICK_RATE_HZ / 100 ); // / 100
 
