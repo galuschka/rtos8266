@@ -11,15 +11,15 @@
  *
  *               /RST   - RST        TX - GPIO1
  *               ADC0   - A0         RX - GPIO3
- *               GPIO16 - D0         D1 - GPIO5   ---> col2
- *   row2 <---   GPIO14 - D5         D2 - GPIO4   ---> col1
- *   row0 <---   GPIO12 - D6         D3 - GPIO0   ---> col0
- *   row1 <---   GPIO13 - D7         D4 - GPIO2  (onboard LED)
- *   row2 <---   GPIO15 - D8         G  - GND
+ *               GPIO16 - D0         D1 - GPIO5   ---> col0
+ *   row0 <---   GPIO14 - D5         D2 - GPIO4   ---> col1
+ *   row1 <---   GPIO12 - D6         D3 - GPIO0   ---> col2
+ *   row2 <---   GPIO13 - D7         D4 - GPIO2  (onboard LED)
+ *   row3 <---   GPIO15 - D8         G  - GND
  *                      - 3V3        5V - power supply
  */
-static const unsigned char s_row[] = { 12,13,14,15 };
-static const unsigned char s_col[] = {  0, 4, 5 };
+static const unsigned char s_row[] = { 14,12,13,15 };
+static const unsigned char s_col[] = {  5, 4, 0 };
 #define NELEMENTS(x) (sizeof(x)/sizeof(x[0]))
 
 #include "Wifi.h"
@@ -57,19 +57,31 @@ void main_nvs_init()
 
 extern "C" void app_main()
 {
+    ESP_LOGI( TAG, "enter" ); sys_delay_ms(5000);
+
     // LED on GPIO2:
     Indicator indicator { GPIO_NUM_2 };         // blue onboard LED
     indicator.Init();
 
-    main_nvs_init();  // initialize non-volatile file system
+    ESP_LOGI( TAG, "vor main_nvs_init()" ); sys_delay_ms(100);
 
-    Wifi::Instance().Init( indicator, 60/*secs timeout to try connect/0:AP only*/);
+    main_nvs_init();  // initialize non-volatile file system
+/*
+    ESP_LOGI( TAG, "vor Wifi::Instance().Init()" ); sys_delay_ms(100);
+
+    Wifi::Instance().Init( indicator, 60 );  // secs timeout to try connect / 0:AP only
+
+    ESP_LOGI( TAG, "vor WebServer::Instance().Init" ); sys_delay_ms(100);
 
     // Wifi::Init blocks until success (or access point mode)
     // now we can initialize web server:
     WebServer::Instance().Init();
+*/
+    ESP_LOGI( TAG, "vor Pinpad()" ); sys_delay_ms(100);
 
     Pinpad pinpad{ s_col, NELEMENTS(s_col), s_row, NELEMENTS(s_row) };
+
+    ESP_LOGI( TAG, "vor pinpad.Run()" ); sys_delay_ms(100);
 
     pinpad.Run( indicator );
 }

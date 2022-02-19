@@ -10,6 +10,8 @@
 
 #include "gpio.h"   // gpio_config_t
 
+//define SWITCH_IN_OUT  // when read mask, switch col and row in/out
+
 typedef unsigned char  u8;
 typedef unsigned short u16;
 
@@ -29,8 +31,10 @@ public:
     void Run( Indicator & indicator );
 
 private:
-    void RowsInColsOut();       // fast check: all rows set 1 and colMask is read
-    void TempColsInRowsOut();   // fine check: every matching col set 1 and rowMask is read
+    void ColsOutRowsIn();       // fast check: all rows set 1 and colMask is read
+#ifdef SWITCH_IN_OUT
+    void TempRowsOutColsIn();   // fine check: every matching col set 1 and rowMask is read
+#endif
 
     u8 const * mCol;     // GPIO pins
     u8 const * mRow;     // GPIO pins

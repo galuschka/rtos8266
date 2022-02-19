@@ -5,6 +5,8 @@
  *      Author: galuschka
  */
 
+#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+
 #include "Pinpad.h"
 #include "Indicator.h"
 
@@ -41,20 +43,22 @@ Pinpad::Pinpad( const u8 * col, u8 nofCols,
     for (u8 i = 0; i < mNofRows; ++i)
         mAllRows |= 1 << mRow[i];
 
-    mInConf.mode         = GPIO_MODE_INPUT;         // set as input mode
-    mInConf.pull_up_en   = GPIO_PULLUP_DISABLE;     // disable pull-up mode
-    mInConf.pull_down_en = GPIO_PULLDOWN_ENABLE;    // enable pull-down mode
+    // The GPIO of esp8266 can not be pulled down except RTC GPIO (16) which can not be pulled up.
+
+    mOutConf.mode         = GPIO_MODE_DISABLE;      // disable when idle
+    mOutConf.pull_up_en   = GPIO_PULLUP_DISABLE;    // pull-up mode
+    mOutConf.pull_down_en = GPIO_PULLDOWN_DISABLE;  // pull-down mode
+    mOutConf.intr_type    = GPIO_INTR_DISABLE;      // disable interrupt
+
+    mInConf.mode         = GPIO_MODE_INPUT;         // input
+    mInConf.pull_up_en   = GPIO_PULLUP_ENABLE;      // pull-up mode
+    mInConf.pull_down_en = GPIO_PULLDOWN_DISABLE;   // pull-down mode
     mInConf.intr_type    = GPIO_INTR_DISABLE;       // disable interrupt
 
-    mOutConf.mode         = GPIO_MODE_OUTPUT;        // set as output mode
-    mOutConf.pull_up_en   = GPIO_PULLUP_DISABLE;     // disable pull-up mode
-    mOutConf.pull_down_en = GPIO_PULLDOWN_DISABLE;   // disable pull-down mode
-    mOutConf.intr_type    = GPIO_INTR_DISABLE;       // disable interrupt
-
-    RowsInColsOut();
+    ColsOutRowsIn();
 }
 
-void Pinpad::RowsInColsOut()
+void Pinpad::ColsOutRowsIn()
 {
     mInConf.pin_bit_mask = mAllRows;
     gpio_config( &mInConf ); // rows are input
@@ -62,22 +66,24 @@ void Pinpad::RowsInColsOut()
     gpio_config( &mOutConf ); // and cols are output
 }
 
-void Pinpad::TempColsInRowsOut()
+#ifdef SWITCH_IN_OUT
+void Pinpad::TempRowsOutColsIn()
 {
     mInConf.pin_bit_mask = mAllCols;
     gpio_config( &mInConf ); // cols are input
     mOutConf.pin_bit_mask = mAllRows;
     gpio_config( &mOutConf ); // and rows are output
 }
+#endif
 
 void Pinpad::OnKeyPress( u8 num )
 {
-    ESP_LOGI( TAG, "key %2d - mask = %04x", num, 1 << num );
+    ESP_LOGI( TAG, "key %2d - mask = 0%o", num, 1 << num );
 }
 
 void Pinpad::OnMultiKey( u16 mask )
 {
-    ESP_LOGI( TAG, "key ev - mask = %04x", mask );
+    ESP_LOGI( TAG, "key ev - mask = 0%o", mask );
 }
 
 void Pinpad::OnRelease()
@@ -88,59 +94,114 @@ void Pinpad::OnRelease()
 void Pinpad::Run( Indicator & indicator )
 {
     while (true) {
-        vTaskDelay( configTICK_RATE_HZ / 100 );
+        vTaskDelay( configTICK_RATE_HZ / 1 ); // / 100
 
-        GPIO.out_w1ts |= mAllCols;
-        vTaskDelay(1);
-        u16 rowMatch = GPIO.in & mAllRows;
+        u16 numMask = 0;
+        u8 num = 0;  // any (not checked when numMask == 0)
+
+        u16 rowMatch;
+        u16 inPrev;
+        u16 in;
+# if 0
+        GPIO.enable_w1ts = mAllCols;
+        GPIO.out_w1tc = mAllCols;   // active
+        vTaskDelay(10);
+        in = GPIO.in & 0xffff;
+        do {
+            vTaskDelay(1);
+            inPrev = in;
+            in = GPIO.in & 0xffff;
+        } while (in != inPrev);
+        GPIO.out_w1ts = mAllCols;   // inactive
+        rowMatch = ~in & mAllRows;
         if (! rowMatch) {
-            GPIO.out_w1tc |= mAllCols;
+            GPIO.enable_w1tc = mAllCols;
             if (mNumMask) {
                 mNumMask = 0;
+                indicator.Blink( 1 );
                 OnRelease();
             }
             continue;
         }
 
-        GPIO.out_w1tc |= mAllCols;
+        ESP_LOGD( TAG, "out 0%02o: ~0%o & 0%o == 0%o", mAllCols, in, mAllRows, rowMatch );
+# endif
 
-        TempColsInRowsOut();
+#ifndef SWITCH_IN_OUT
+        for (u8 c = 0; (c < mNofCols) /*&& (c < 1)*/; ++c) {
+            GPIO.enable_w1ts = 1 << mCol[c];
+            GPIO.out_w1tc = 1 << mCol[c];   // active
+            vTaskDelay(10);
+            in = GPIO.in & 0xffff;
+            do {
+                vTaskDelay(1);
+                inPrev = in;
+                in = GPIO.in & 0xffff;
+            } while (in != inPrev);
+            GPIO.out_w1ts = 1 << mCol[c];   // inactive
+            GPIO.enable_w1tc = 1 << mCol[c];
+            rowMatch = ~in & mAllRows;
+
+            ESP_LOGD( TAG, "out 0%02o: ~0%o & 0%o == 0%o", 1 << mCol[c], in, mAllRows, rowMatch );
+
+            if (! rowMatch)
+                continue;
+
+            for (u8 r = 0; (r < mNofRows) && rowMatch; ++r) {
+                if (!(rowMatch & (1 << mRow[r])))
+                    continue;
+                rowMatch &= ~(1 << mRow[r]);
+                num = s_num[r][c];
+                numMask |= 1 << num;
+            }
+        }
+#else
+        TempRowsOutColsIn();
 
         u16 numMask = 0;
         u8 num = 0;  // any (not checked when numMask == 0)
 
         for (u8 r = 0; (r < mNofRows) && rowMatch; ++r) {
-            if (! (rowMatch & (1 << r)))
+            if (! (rowMatch & (1 << mRow[r])))
                 continue;
-            rowMatch &= ~(1 << r);
+            rowMatch &= ~(1 << mRow[r]);
 
-            GPIO.out_w1ts |= 1 << mRow[r];
-            vTaskDelay(1);
+            GPIO.out_w1ts = 1 << mRow[r];
+            vTaskDelay(10);
             u16 colMatch = GPIO.in & mAllCols;
             if (colMatch) {
+                ESP_LOGI( TAG, "row %d: GPIO.in & mAllCols: 0%o & 0%o == 0%o", r, GPIO.in, mAllCols, colMatch );
+
                 for (u8 c = 0; (c < mNofCols) && colMatch; ++c) {
-                    if (! (colMatch & (1 << c)))
+                    if (! (colMatch & (1 << mCol[c])))
                         continue;
-                    colMatch &= ~(1 << c);
+                    colMatch &= ~(1 << mCol[c]);
 
                     num = s_num[r][c];
                     numMask |= 1 << num;
                 }
             }
-            GPIO.out_w1tc |= 1 << mRow[r];
+            GPIO.out_w1tc = 1 << mRow[r];
         }
 
         RowsInColsOut();  // undo fine check
+#endif
+        GPIO.enable_w1tc = mAllCols;
 
         if (numMask == mNumMask)
             continue;
 
-        if (! numMask)  // should not happen (race condition)
+        if (! numMask) { // should not happen (race condition)
+            indicator.Blink( 1 );
             OnRelease();
-        else if ((! mNumMask) && (numMask == (1 << num)))
+        } else if ((! mNumMask) && (numMask == (1 << num))) {
+            indicator.Blink( 2 );
             OnKeyPress( num );
-        else
+        } else {
+            indicator.Blink( 3 );
             OnMultiKey( numMask );
+        }
+
         mNumMask = numMask;
     }
 }

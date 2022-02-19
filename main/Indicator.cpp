@@ -17,33 +17,32 @@ extern "C" void IndicatorTask( void * indicator )
 }
 
 Indicator::Indicator( gpio_num_t pin ) :
-        Pin { pin }, Status { STATUS_ERROR }, SigMask { 0xf0 }, TaskHandle { 0 }, Semaphore {
+        mPin { pin }, mStatus { STATUS_ERROR }, mSigMask { 0xf0 }, mTaskHandle { 0 }, mSemaphore {
                 0 }
 {
     gpio_config_t io_conf;
 
-    io_conf.pin_bit_mask = (1 << Pin);
+    io_conf.pin_bit_mask = (1 << mPin);
     io_conf.mode = GPIO_MODE_OUTPUT;       // set as output mode
     io_conf.pull_up_en = GPIO_PULLUP_DISABLE;    // disable pull-up mode
     io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;  // disable pull-down mode
     io_conf.intr_type = GPIO_INTR_DISABLE;      // disable interrupt
 
     gpio_config( &io_conf );    // configure GPIO with the given settings
-    gpio_set_level( Pin, 0 );   // low active - switch on
+    gpio_set_level( mPin, 0 );   // low active - switch on
 }
 
 bool Indicator::Init()
 {
+    mSemaphore = xSemaphoreCreateBinary( );
     xTaskCreate( IndicatorTask, "Indicator", /*stack size*/1024, this, /*prio*/
-            1, &TaskHandle );
-    if (!TaskHandle) {
+            1, &mTaskHandle );
+    if (!mTaskHandle) {
         ESP_LOGE( TAG, "xTaskCreate failed" );
         return false;
     }
 
-    Semaphore = xSemaphoreCreateBinary( );
-
-    if (!Semaphore) {
+    if (!mSemaphore) {
         ESP_LOGE( TAG, "xSemaphoreCreateBinary failed" );
         return false;
     }
@@ -53,46 +52,61 @@ bool Indicator::Init()
 
 void Indicator::Indicate( Indicator::STATUS status )
 {
-    if (Status == status)
+    if (mStatus == status)
         return;
-    Status = status;
-    switch (Status) {
+    mStatus = status;
+    switch (mStatus) {
     case STATUS_ERROR:      // |##################################...
-        SigMask = 0;
+        mSigMask = 0;
         break;
     case STATUS_AP:         // |###########################|_|#|_|
-        SigMask = 0x111d;
+        mSigMask = 0x111d;
         break;
     case STATUS_CONNECT:    // |###############################|_|
-        SigMask = 0x1f;
+        mSigMask = 0x1f;
         break;
     case STATUS_IDLE:       // |_______________________________|#|
-        SigMask = 0xf1;
+        mSigMask = 0xf1;
         break;
     case STATUS_ACTIVE:     // |################|________________|
-        SigMask = 0x88;
+        mSigMask = 0x88;
         break;
     }
-    xSemaphoreGive( Semaphore );
+    xSemaphoreGive( mSemaphore );
+}
+
+void Indicator::Blink( uint8_t num )
+{
+    mBlink = num;
+    xSemaphoreGive( mSemaphore );
 }
 
 void Indicator::Run()
 {
     int phase = 0;
     while (true) {
-        if (!SigMask) {
-            gpio_set_level( Pin, 0 );   // low active - switch on
-            xSemaphoreTake( Semaphore, portMAX_DELAY );
+        if (mBlink) {
+            do {
+                gpio_set_level( mPin, 0 );
+                xSemaphoreTake( mSemaphore, configTICK_RATE_HZ / 16 );
+                gpio_set_level( mPin, 1 );
+                xSemaphoreTake( mSemaphore, configTICK_RATE_HZ / 16 );
+            } while (--mBlink);
+        }
+
+        if (!mSigMask) {
+            gpio_set_level( mPin, 0 );   // low active - switch on
+            xSemaphoreTake( mSemaphore, portMAX_DELAY );
         }
 
         if (++phase > 3)
             phase = 0;
 
-        int duration = (SigMask >> (phase * 4)) & 0xf;
+        int duration = (mSigMask >> (phase * 4)) & 0xf;
         if (!duration)
             continue;
 
-        gpio_set_level( Pin, phase & 1 );
-        xSemaphoreTake( Semaphore, (duration * configTICK_RATE_HZ) / 8 );
+        gpio_set_level( mPin, phase & 1 );
+        xSemaphoreTake( mSemaphore, (duration * configTICK_RATE_HZ) / 8 );
     }
 }

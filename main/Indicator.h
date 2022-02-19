@@ -27,14 +27,16 @@ public:
     };
     Indicator( gpio_num_t pin );
     void Indicate( STATUS status );
+    void Blink( uint8_t num );  // num = number of times on
     bool Init();
     void Run();  // internal thread routine
 private:
-    gpio_num_t Pin;
-    STATUS Status;
-    long SigMask;
-    TaskHandle_t TaskHandle;
-    SemaphoreHandle_t Semaphore;
+    gpio_num_t mPin;
+    uint8_t mBlink;
+    STATUS mStatus;
+    long mSigMask;
+    TaskHandle_t mTaskHandle;
+    SemaphoreHandle_t mSemaphore;
 };
 
 #endif /* MAIN_INDICATOR_H_ */
