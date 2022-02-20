@@ -27,6 +27,7 @@ static WebServer * s_WebServer;
 #define min(a,b) ((a) < (b) ? a : b)
 
 #define SendCharsChunk( req, chararray )  httpd_resp_send_chunk( req, chararray, sizeof(chararray) - 1 )
+#define SendFinalChunk( req )             httpd_resp_send_chunk( req, 0, 0 )
 
 namespace
 {
@@ -71,7 +72,7 @@ extern "C" esp_err_t handler_get_wifi( httpd_req_t * req )
         SendStringChunk( req, id );
     }
     SendCharsChunk( req, s_data3 );
-    httpd_resp_send_chunk( req, 0, 0 );
+    SendFinalChunk( req );
     return ESP_OK;
 }
 
@@ -80,6 +81,7 @@ extern "C" esp_err_t handler_post_wifi( httpd_req_t * req )
     if (!req->content_len) {
         const char s_msg[] = "no data - nothing done";
         SendCharsChunk( req, s_msg );
+        SendFinalChunk( req );
         return ESP_OK;
     }
     enum STATUS
@@ -195,6 +197,7 @@ extern "C" esp_err_t handler_post_wifi( httpd_req_t * req )
     if (status != VALUE) {
         const char s_msg[] = "unexpected end of data while parsing key";
         SendCharsChunk( req, s_msg );
+        SendFinalChunk( req );
         return ESP_OK;
     }
     *vp = 0;
@@ -219,6 +222,7 @@ extern "C" esp_err_t handler_post_wifi( httpd_req_t * req )
     if (!x) {
         const char s_msg[] = "data unchanged";
         SendCharsChunk( req, s_msg );
+        SendFinalChunk( req );
         return ESP_OK;
     }
 #if 1
@@ -226,12 +230,14 @@ extern "C" esp_err_t handler_post_wifi( httpd_req_t * req )
 	if (! s_WebServer->wifi().SetParam( id, pw )) {
 		const char s_err[] = "setting wifi parameter failed - try again";
 		SendCharsChunk( req, s_err );
+        SendFinalChunk( req );
 		return ESP_OK;
 
 	}
 #endif
     const char s_ok[] = "configuration has been set";
     SendCharsChunk( req, s_ok );
+    SendFinalChunk( req );
     return ESP_OK;
 }
 
@@ -247,6 +253,7 @@ static char s_update[] =
 extern "C" esp_err_t handler_get_update( httpd_req_t * req )
 {
     SendCharsChunk( req, s_update );
+    SendFinalChunk( req );
     return ESP_OK;
 }
 
@@ -258,7 +265,7 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
         const char s_err[] = "<br /><br />too less data -> please retry";
         SendCharsChunk( req, s_update );
         SendCharsChunk( req, s_err );
-        httpd_resp_send_chunk( req, 0, 0 );
+        SendFinalChunk( req );
         return ESP_OK;
     }
 
@@ -295,6 +302,7 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
             if (!nofdashes) {
                 const char s_err[] = "boundary dashes (---) missing";
                 SendCharsChunk( req, s_err );
+                SendFinalChunk( req );
                 return ESP_OK;
             }
             char *bp = boundary;
@@ -305,6 +313,7 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
             if (!boundarylen) {
                 const char s_err[] = "boundary digit missing";
                 SendCharsChunk( req, s_err );
+                SendFinalChunk( req );
                 return ESP_OK;
             }
 
@@ -312,6 +321,7 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
             if ((!start) || (start >= &buf[readlen]) || (start[-1] != '\n')) {
                 const char s_err[] = "0xe9 on new line missing";
                 SendCharsChunk( req, s_err );
+                SendFinalChunk( req );
                 return ESP_OK;
             }
 
@@ -321,6 +331,7 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
             if (err != ESP_OK) {
                 const char s_err[] = "OTA initialization failed";
                 SendCharsChunk( req, s_err );
+                SendFinalChunk( req );
                 return ESP_OK;
             }
             const esp_err_t werr = esp_ota_write( ota, start,
@@ -361,6 +372,7 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
 #endif
                 const char s_err[] = "1st OTA write failed";
                 SendCharsChunk( req, s_err );
+                SendFinalChunk( req );
                 return ESP_OK;
             }
         } else {
@@ -369,6 +381,7 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
                 esp_ota_end( ota );
                 const char s_err[] = "sub sequential OTA write failed";
                 SendCharsChunk( req, s_err );
+                SendFinalChunk( req );
                 return ESP_OK;
             }
         }
@@ -377,6 +390,7 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
     if (!ota) {
         const char s_err[] = "no data received";
         SendCharsChunk( req, s_err );
+        SendFinalChunk( req );
         return ESP_OK;
     }
 
@@ -390,6 +404,7 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
             esp_ota_end( ota );
             const char s_err[] = "last read failed";
             SendCharsChunk( req, s_err );
+            SendFinalChunk( req );
             return ESP_OK;
         }
         remaining -= readlen;
@@ -440,6 +455,7 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
         esp_ota_end( ota );
         const char s_err[] = "last OTA write failed";
         SendCharsChunk( req, s_err );
+        SendFinalChunk( req );
         return ESP_OK;
     }
 
@@ -455,7 +471,7 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
     SendCharsChunk( req, s_data1 );
     SendStringChunk( req, partition->label );
     SendCharsChunk( req, s_data3 );
-    httpd_resp_send_chunk( req, 0, 0 );
+    SendFinalChunk( req );
     return ESP_OK;
 }
 
@@ -465,6 +481,7 @@ extern "C" esp_err_t handler_get_reboot( httpd_req_t * req )
             "<button type=\"submit\">reboot</button>"
             "</form>";
     SendCharsChunk( req, s_fmt );
+    SendFinalChunk( req );
     return ESP_OK;
 }
 
@@ -478,6 +495,7 @@ extern "C" esp_err_t handler_post_reboot( httpd_req_t * req )
             "</body>";
 
     SendCharsChunk( req, s_info );
+    SendFinalChunk( req );
     vTaskDelay( configTICK_RATE_HZ / 10 );
 
     esp_restart();
@@ -581,6 +599,7 @@ void WebServer::AddPage( const WebServer::Page & page,
         const httpd_uri_t * postUri )
 {
     PageList *elem = new PageList { page };
+
     if (LastElem) {
         LastElem->Next = elem;
     } else {
@@ -622,8 +641,7 @@ void WebServer::MainPage( httpd_req_t * req )
         SendStringChunk( req, elem->Page.LinkText );
         SendStringChunk( req, "</a>" );
     }
-
-    httpd_resp_send_chunk( req, NULL, 0 );
+    SendFinalChunk( req );
 }
 
 void WebServer::Init()
@@ -638,5 +656,5 @@ void WebServer::Init()
         ESP_LOGD( TAG, "AddPage update" ); EXPRD(vTaskDelay(1))
         AddPage( page_update, &uri_post_update );
     }
-    // AddPage( page_reboot, &uri_post_reboot );
+    AddPage( page_reboot, &uri_post_reboot );
 }

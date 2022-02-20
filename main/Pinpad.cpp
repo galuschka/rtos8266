@@ -71,7 +71,16 @@ u8 s_lastNum = 16;
 
 void Pinpad::OnKeyPress( u8 num )
 {
-    ESP_LOGI( TAG, "key %2d - mask = 0%o", num, 1 << num );
+    int c = num + '0';
+    switch (num) {
+        case 10: c = 'A'; break;
+        case 11: c = 'B'; break;
+        case 12: c = 'C'; break;
+        case 13: c = 'D'; break;
+        case 14: c = '#'; break;
+        case 15: c = '*'; break;
+    }
+    ESP_LOGI( TAG, "key %c - mask = 0%o", c, 1 << num );
     s_lastNum = num;
 }
 
@@ -85,11 +94,11 @@ void Pinpad::OnRelease()
     ESP_LOGD( TAG, "key rel. (mask = 0)" );
 
     if (s_lastNum == 7) {
-        vTaskDelay( 20 );
+        vTaskDelay( 50 );
         s_indicatorPtr->Access( 1 );
     }
     if (s_lastNum == 15) {
-        vTaskDelay( 20 );
+        vTaskDelay( 50 );
         s_indicatorPtr->Access( 0 );
     }
 }
@@ -98,7 +107,7 @@ void Pinpad::Run( Indicator & indicator )
 {
     s_indicatorPtr = & indicator;
     while (true) {
-        vTaskDelay( configTICK_RATE_HZ / 100 ); // / 100
+        vTaskDelay( configTICK_RATE_HZ / 50 ); // / 100
 
         u16 numMask = 0;
         u8 num = 0;  // any (not checked when numMask == 0)
@@ -111,7 +120,7 @@ void Pinpad::Run( Indicator & indicator )
         for (u8 r = 0; (r < mNofRows) /*&& (r < 1)*/; ++r) {
             // GPIO.enable_w1ts = 1 << mRow[r];
             GPIO.out_w1tc = 1 << mRow[r];   // low active
-            ets_delay_us(700);
+            ets_delay_us(500);
             in = GPIO.in & 0xffff;
             do {
                 ets_delay_us(100);

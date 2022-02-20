@@ -22,7 +22,7 @@ static const unsigned char s_row[] = { 14,12,13,15 };
 static const unsigned char s_col[] = {  5, 4, 0 };
 #define NELEMENTS(x) (sizeof(x)/sizeof(x[0]))
 
-#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+//define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 
 #include "Wifi.h"
 #include "WebServer.h"
