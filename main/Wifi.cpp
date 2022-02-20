@@ -5,6 +5,8 @@
  *      Author: galuschka
  */
 
+#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+
 #include "Wifi.h"
 #include "Indicator.h"
 
@@ -15,6 +17,12 @@
 #include "esp_ota_ops.h"    // esp_ota_get_app_description()
 #include "esp_log.h"        // ESP_LOGI()
 
+#if (LOG_LOCAL_LEVEL >= ESP_LOG_DEBUG)
+#define EXPRD(expr) do { expr; } while(0);
+#else
+#define EXPRD(expr)
+#endif
+
 const char *s_keySsid = "ssid";
 const char *s_keyPassword = "password";
 
@@ -23,25 +31,24 @@ static const char *TAG = "Wifi";
 Wifi::Wifi() :
         mIpAddr { 0 }, mSsid { "" }, mPassword { "" }, mMode { MODE_IDLE }
 {
+    ESP_LOGD( TAG, "xEventGroupCreate()" ); EXPRD(vTaskDelay(1))
     mConnectEventGroup = xEventGroupCreate();
 
+    ESP_LOGD( TAG, "ReadParam()" ); EXPRD(vTaskDelay(1))
     ReadParam();
-}
-
-Wifi& Wifi::Instance()
-{
-    static Wifi inst { };
-    return inst;
 }
 
 void Wifi::ReadParam()
 {
-    ESP_LOGI( TAG, "Reading Wifi configuration" );
+    ESP_LOGI( TAG, "Reading Wifi configuration" ); EXPRD(vTaskDelay(1))
 
     nvs_handle my_handle;
     if (nvs_open( "wifi", NVS_READONLY, &my_handle ) == ESP_OK) {
+        ESP_LOGD( TAG, "Reading SSID" ); EXPRD(vTaskDelay(1))
         size_t len = sizeof(mSsid);
         nvs_get_str( my_handle, s_keySsid, mSsid, &len );
+
+        ESP_LOGD( TAG, "Reading password" ); EXPRD(vTaskDelay(1))
         len = sizeof(mPassword);
         nvs_get_str( my_handle, s_keyPassword, mPassword, &len );
 
@@ -203,18 +210,23 @@ void Wifi::Init( Indicator & indicator, int connTimoInSecs )
 {
     wifi_init_config_t wifi_init_config = WIFI_INIT_CONFIG_DEFAULT()
     ;
+    ESP_LOGD( TAG, "esp_wifi_init()" ); EXPRD(vTaskDelay(1))
 
     ESP_ERROR_CHECK( esp_wifi_init( &wifi_init_config ) );
+    ESP_LOGD( TAG, "esp_event_handler_register(WIFI_EVENT)" ); EXPRD(vTaskDelay(1))
     ESP_ERROR_CHECK(
             esp_event_handler_register( WIFI_EVENT, ESP_EVENT_ANY_ID, & wifi_event, this ) );
+    ESP_LOGD( TAG, "esp_event_handler_register(IP_EVENT)" ); EXPRD(vTaskDelay(1))
     ESP_ERROR_CHECK(
             esp_event_handler_register( IP_EVENT, ESP_EVENT_ANY_ID, & ip_event, this ) );
 
     if (connTimoInSecs && mSsid[0]) {
         indicator.Indicate( Indicator::STATUS_CONNECT );
+        ESP_LOGD( TAG, "ModeSta()" ); EXPRD(vTaskDelay(1))
         if (ModeSta( connTimoInSecs ))
             return;
     }
     indicator.Indicate( Indicator::STATUS_AP );
+    ESP_LOGD( TAG, "ModeAp()" ); EXPRD(vTaskDelay(1))
     ModeAp();
 }

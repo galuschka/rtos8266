@@ -8,6 +8,7 @@
 #ifndef MAIN_WEBSERVER_H_
 #define MAIN_WEBSERVER_H_
 
+#include "Wifi.h"
 #include <esp_http_server.h>
 
 class WebServer
@@ -34,17 +35,21 @@ private:
         {
         }
     };
-    WebServer();
+    // WebServer();
 public:
-    static WebServer& Instance();
+    WebServer( Wifi & wifi );
     void Init();
+
+    Wifi & wifi() { return mWifi; };
+
     void AddPage( const Page & page, const httpd_uri_t * postUri = 0 );
     void MainPage( httpd_req_t * req );
 
 private:
+    Wifi &mWifi;
     httpd_handle_t server { 0 };
-    PageList *Anchor;
-    PageList *LastElem;
+    PageList *Anchor{ 0 };
+    PageList *LastElem{ 0 };
 };
 
 #endif /* MAIN_WEBSERVER_H_ */

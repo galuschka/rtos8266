@@ -34,11 +34,11 @@ private:
         MODE_ACCESSPOINT,
         MODE_STATION,
     };
-
-    Wifi();
 public:
-    static Wifi& Instance();
+    Wifi();
+
     void Init( Indicator & indicator, int connTimoInSecs );
+
     u32_t GetIpAddr()
     {
         return mIpAddr.addr;

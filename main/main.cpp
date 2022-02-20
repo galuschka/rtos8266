@@ -22,6 +22,8 @@ static const unsigned char s_row[] = { 14,12,13,15 };
 static const unsigned char s_col[] = {  5, 4, 0 };
 #define NELEMENTS(x) (sizeof(x)/sizeof(x[0]))
 
+#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+
 #include "Wifi.h"
 #include "WebServer.h"
 
@@ -32,6 +34,12 @@ static const unsigned char s_col[] = {  5, 4, 0 };
 #include "esp_netif.h"  // esp_netif_init()
 #include "esp_log.h"    // ESP_LOGI()
 #include "nvs_flash.h"  // nvs_flash_init()
+
+#if (LOG_LOCAL_LEVEL >= ESP_LOG_DEBUG)
+#define EXPRD(expr) do { expr; } while(0);
+#else
+#define EXPRD(expr)
+#endif
 
 static const char *TAG = "main";
 
@@ -57,31 +65,35 @@ void main_nvs_init()
 
 extern "C" void app_main()
 {
-    ESP_LOGI( TAG, "enter" ); sys_delay_ms(5000);
+    // ESP_LOGD( TAG, "enter" ); sys_delay_ms(5000);
 
     // LED on GPIO2:
     Indicator indicator { GPIO_NUM_2, GPIO_NUM_16 };         // red/green
     indicator.Init();
 
-    ESP_LOGI( TAG, "vor main_nvs_init()" ); sys_delay_ms(100);
+    // ESP_LOGD( TAG, "main_nvs_init()" ); EXPRD(vTaskDelay(1))
 
     main_nvs_init();  // initialize non-volatile file system
-/*
-    ESP_LOGI( TAG, "vor Wifi::Instance().Init()" ); sys_delay_ms(100);
 
-    Wifi::Instance().Init( indicator, 60 );  // secs timeout to try connect / 0:AP only
+    // ESP_LOGD( TAG, "Wifi()" ); EXPRD(vTaskDelay(1))
 
-    ESP_LOGI( TAG, "vor WebServer::Instance().Init" ); sys_delay_ms(100);
+    Wifi wifi;
 
+    // ESP_LOGD( TAG, "wifi.Init()" ); EXPRD(vTaskDelay(1))
+    wifi.Init( indicator, 60 );
     // Wifi::Init blocks until success (or access point mode)
     // now we can initialize web server:
-    WebServer::Instance().Init();
-*/
-    ESP_LOGI( TAG, "vor Pinpad()" ); sys_delay_ms(100);
 
+    ESP_LOGD( TAG, "WebServer()" ); EXPRD(vTaskDelay(1))
+    WebServer webServer{ wifi };
+
+    ESP_LOGD( TAG, "webServer.Init()" ); EXPRD(vTaskDelay(1))
+    webServer.Init();
+
+    ESP_LOGD( TAG, "Pinpad()" ); EXPRD(vTaskDelay(1))
     Pinpad pinpad{ s_col, NELEMENTS(s_col), s_row, NELEMENTS(s_row) };
 
-    ESP_LOGI( TAG, "vor pinpad.Run()" ); sys_delay_ms(100);
+    ESP_LOGD( TAG, "pinpad.Run()" ); EXPRD(vTaskDelay(1))
 
     pinpad.Run( indicator );
 }

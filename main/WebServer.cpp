@@ -5,6 +5,8 @@
  *      Author: galuschka
  */
 
+#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+
 #include "WebServer.h"
 
 #include "Wifi.h"
@@ -13,7 +15,14 @@
 #include "esp_event_base.h"   	// esp_event_base_t
 #include "esp_ota_ops.h"   		// esp_ota_begin(), ...
 
+#if (LOG_LOCAL_LEVEL >= ESP_LOG_DEBUG)
+#define EXPRD(expr) do { expr; } while(0);
+#else
+#define EXPRD(expr)
+#endif
+
 static const char *TAG = "WebServer";
+static WebServer * s_WebServer;
 
 #define min(a,b) ((a) < (b) ? a : b)
 
@@ -29,7 +38,7 @@ void SendStringChunk( httpd_req_t * req, const char * string )
 
 extern "C" esp_err_t handler_get_main( httpd_req_t * req )
 {
-    WebServer::Instance().MainPage( req );
+    s_WebServer->MainPage( req );
     return ESP_OK;
 }
 
@@ -57,7 +66,7 @@ extern "C" esp_err_t handler_get_wifi( httpd_req_t * req )
 //@formatter:on
 
     SendCharsChunk( req, s_data1 );
-    const char * const id = Wifi::Instance().GetSsid();
+    const char * const id = s_WebServer->wifi().GetSsid();
     if (id && *id) {  // do not send 0-sized data before final chunk
         SendStringChunk( req, id );
     }
@@ -203,11 +212,9 @@ extern "C" esp_err_t handler_post_wifi( httpd_req_t * req )
         return ESP_OK;
     }
 
-    Wifi &wifi = Wifi::Instance();
-
-    if (strcmp( id, wifi.GetSsid() ))
+    if (strcmp( id, s_WebServer->wifi().GetSsid() ))
         x |= 1;
-    if (strcmp( pw, wifi.GetPassword() ))
+    if (strcmp( pw, s_WebServer->wifi().GetPassword() ))
         x |= 2;
     if (!x) {
         const char s_msg[] = "data unchanged";
@@ -216,7 +223,7 @@ extern "C" esp_err_t handler_post_wifi( httpd_req_t * req )
     }
 #if 1
 	// ESP_LOGI( TAG, "received ssid \"%s\", password \"%s\"", id, pw );
-	if (! wifi.SetParam( id, pw )) {
+	if (! s_WebServer->wifi().SetParam( id, pw )) {
 		const char s_err[] = "setting wifi parameter failed - try again";
 		SendCharsChunk( req, s_err );
 		return ESP_OK;
@@ -558,17 +565,18 @@ extern "C" void connect_handler( void * arg, esp_event_base_t event_base,
     }
 }
 
-WebServer::WebServer()
+WebServer::WebServer(Wifi & wifi) : mWifi {wifi}
 {
+    s_WebServer = this;
     server = start_webserver();
 }
-
+/*
 WebServer& WebServer::Instance()
 {
     static WebServer webserver { };
     return webserver;
 }
-
+*/
 void WebServer::AddPage( const WebServer::Page & page,
         const httpd_uri_t * postUri )
 {
@@ -620,13 +628,14 @@ void WebServer::MainPage( httpd_req_t * req )
 
 void WebServer::Init()
 {
-    ESP_LOGI( TAG, "Registering URI handlers" );
-
+    ESP_LOGI( TAG, "Registering URI handlers" ); EXPRD(vTaskDelay(1))
     httpd_register_uri_handler( server, &uri_main );
 
+    ESP_LOGD( TAG, "AddPage wifi" ); EXPRD(vTaskDelay(1))
     AddPage( page_wifi, &uri_post_wifi );
 
-    if (1 || Wifi::Instance().StationMode()) {
+    if (1 || mWifi.StationMode()) {
+        ESP_LOGD( TAG, "AddPage update" ); EXPRD(vTaskDelay(1))
         AddPage( page_update, &uri_post_update );
     }
     // AddPage( page_reboot, &uri_post_reboot );
