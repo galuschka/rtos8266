@@ -223,8 +223,10 @@ void Wifi::Init( Indicator & indicator, int connTimoInSecs )
     if (connTimoInSecs && mSsid[0]) {
         indicator.Indicate( Indicator::STATUS_CONNECT );
         ESP_LOGD( TAG, "ModeSta()" ); EXPRD(vTaskDelay(1))
-        if (ModeSta( connTimoInSecs ))
+        if (ModeSta( connTimoInSecs )) {
+            indicator.Indicate( Indicator::STATUS_IDLE );
             return;
+        }
     }
     indicator.Indicate( Indicator::STATUS_AP );
     ESP_LOGD( TAG, "ModeAp()" ); EXPRD(vTaskDelay(1))

@@ -14,6 +14,11 @@
 #include "esp_log.h"   			// ESP_LOGI()
 #include "esp_event_base.h"   	// esp_event_base_t
 #include "esp_ota_ops.h"   		// esp_ota_begin(), ...
+#include "../favicon.i"         // favicon_ico
+
+// include "esp_task_wdt.h"     // esp_task_wdt_reset(), ...
+#undef  WDT_FEED
+#define WDT_FEED()  // esp_task_wdt_reset()  // reset WDT
 
 #if (LOG_LOCAL_LEVEL >= ESP_LOG_DEBUG)
 #define EXPRD(expr) do { expr; } while(0);
@@ -27,13 +32,45 @@ static WebServer * s_WebServer;
 #define min(a,b) ((a) < (b) ? a : b)
 
 #define SendCharsChunk( req, chararray )  httpd_resp_send_chunk( req, chararray, sizeof(chararray) - 1 )
-#define SendFinalChunk( req )             httpd_resp_send_chunk( req, 0, 0 )
+
+#define SendConstChunk( req, text ) do { static const char s_text[] = text; \
+                                         SendCharsChunk( req, s_text ); \
+                                    } while (0)
 
 namespace
 {
 void SendStringChunk( httpd_req_t * req, const char * string )
 {
     httpd_resp_send_chunk( req, string, strlen( string ) );
+}
+
+void SendInitialChunk( httpd_req_t * req, bool link2parent = true, const char * meta = 0 )
+{
+    SendConstChunk( req, "<!DOCTYPE html>\n"
+                         "<html>\n"
+                         " <head><meta charset=\"utf-8\"/>" );
+    if (meta)
+        SendStringChunk( req, meta );
+
+    SendConstChunk( req, "\n </head>\n"
+                           " <body>\n" );
+    if (link2parent) {
+        const esp_app_desc_t *const desc = esp_ota_get_app_description();
+        SendConstChunk( req, "  <h1><a href=\"/\">" );
+        SendStringChunk( req, desc->project_name );
+        SendConstChunk( req, "</a></h1>\n" );
+    }
+}
+
+void SendFinalChunk( httpd_req_t * req, bool link2parent = true )
+{
+    /*
+    if (link2parent) {
+        SendConstChunk( req, "<br /><br /><a href=\"/\">Home</a>\n" );
+    }
+    */
+    SendStringChunk( req, " </body>\n" "</html>\n" );
+    httpd_resp_send_chunk( req, 0, 0 );
 }
 }
 
@@ -43,44 +80,46 @@ extern "C" esp_err_t handler_get_main( httpd_req_t * req )
     return ESP_OK;
 }
 
+extern "C" esp_err_t handler_get_favicon( httpd_req_t * req )
+{
+    httpd_resp_set_type( req, "image/x-icon" );
+    httpd_resp_send( req, favicon_ico, sizeof(favicon_ico) );
+    return ESP_OK;
+}
+
 extern "C" esp_err_t handler_get_wifi( httpd_req_t * req )
 {
-//@formatter:off
-
-    static char s_data1[] = "<form method=\"post\">"
+    SendInitialChunk( req );
+    SendConstChunk( req, "<form method=\"post\">"
                              "<table border=0>"
                               "<tr>"
                                "<td>SSID:</td>"
-                               "<td><input type=\"text\" name=\"id\" value=\"";
-    static char s_data3[] =                "\" maxlength=31></td>"
-                              "</tr>"
+                               "<td><input type=\"text\" name=\"id\" value=\"" );
+    const char * const id = s_WebServer->wifi().GetSsid();
+    if (id && *id) {
+        SendStringChunk( req, id );
+    }
+    SendConstChunk( req, "\" maxlength=31></td>"
+                              "</tr>\n   "
                               "<tr>"
                                "<td>Password:</td>"
                                "<td><input type=\"password\" name=\"pw\" maxlength=31></td>"
-                              "</tr>"
+                              "</tr>\n   "
                               "<tr>"
                                "<td />"
                                "<td><button type=\"submit\">set</button></td>"
-                              "</tr>"
-                             "</table>"
-                            "</form>";
-//@formatter:on
-
-    SendCharsChunk( req, s_data1 );
-    const char * const id = s_WebServer->wifi().GetSsid();
-    if (id && *id) {  // do not send 0-sized data before final chunk
-        SendStringChunk( req, id );
-    }
-    SendCharsChunk( req, s_data3 );
+                              "</tr>\n  "
+                             "</table>\n "
+                            "</form>" );
     SendFinalChunk( req );
     return ESP_OK;
 }
 
 extern "C" esp_err_t handler_post_wifi( httpd_req_t * req )
 {
+    SendInitialChunk( req );
     if (!req->content_len) {
-        const char s_msg[] = "no data - nothing done";
-        SendCharsChunk( req, s_msg );
+        SendConstChunk( req, "no data - nothing done" );
         SendFinalChunk( req );
         return ESP_OK;
     }
@@ -132,9 +171,9 @@ extern "C" esp_err_t handler_post_wifi( httpd_req_t * req )
                         end = val + sizeof(pw) - 1;
                     } else {
                         snprintf( buf, sizeof(buf), "unknown key \"%s\"", key );
-                        const int strlenbuf = strlen( buf );
-                        httpd_resp_send( req, buf,
-                                min( sizeof(buf), strlenbuf ) );
+                        buf[sizeof(buf)-1] = 0;
+                        SendStringChunk( req, buf );
+                        SendFinalChunk( req );
                         return ESP_OK;
                     }
                     status = VALUE;
@@ -142,8 +181,9 @@ extern "C" esp_err_t handler_post_wifi( httpd_req_t * req )
                 } else if (vp >= end) {
                     snprintf( buf, sizeof(buf), "key too long (\"%.*s%c...\")",
                             sizeof(key) - 1, key, *bp );
-                    const int strlenbuf = strlen( buf );
-                    httpd_resp_send( req, buf, min( sizeof(buf), strlenbuf ) );
+                    buf[sizeof(buf)-1] = 0;
+                    SendStringChunk( req, buf );
+                    SendFinalChunk( req );
                     return ESP_OK;
                 } else {
                     *vp++ = *bp;
@@ -157,12 +197,11 @@ extern "C" esp_err_t handler_post_wifi( httpd_req_t * req )
                     vp = key;
                     end = vp + sizeof(key) - 1;
                 } else if (vp >= end) {
-                    const char s_msg[] = "value too long";
-                    SendCharsChunk( req, s_msg );
                     snprintf( buf, sizeof(buf),
                             "\"%s\" value too long (max %d)", key, end - val );
-                    const int strlenbuf = strlen( buf );
-                    httpd_resp_send( req, buf, min( sizeof(buf), strlenbuf ) );
+                    buf[sizeof(buf)-1] = 0;
+                    SendStringChunk( req, buf );
+                    SendFinalChunk( req );
                     return ESP_OK;
                 } else if (*bp == '%') {
                     status = HEX1;
@@ -195,8 +234,7 @@ extern "C" esp_err_t handler_post_wifi( httpd_req_t * req )
     }
 
     if (status != VALUE) {
-        const char s_msg[] = "unexpected end of data while parsing key";
-        SendCharsChunk( req, s_msg );
+        SendConstChunk( req, "unexpected end of data while parsing key" );
         SendFinalChunk( req );
         return ESP_OK;
     }
@@ -210,8 +248,9 @@ extern "C" esp_err_t handler_post_wifi( httpd_req_t * req )
     if (x) {
         snprintf( buf, sizeof(buf), "%s%s%s not set", x & 1 ? "SSID" : "",
                 x == 3 ? " and " : "", x & 2 ? "Password" : "" );
-        const int strlenbuf = strlen( buf );
-        httpd_resp_send( req, buf, min( sizeof(buf), strlenbuf ) );
+        buf[sizeof(buf)-1] = 0;
+        SendStringChunk( req, buf );
+        SendFinalChunk( req );
         return ESP_OK;
     }
 
@@ -220,38 +259,37 @@ extern "C" esp_err_t handler_post_wifi( httpd_req_t * req )
     if (strcmp( pw, s_WebServer->wifi().GetPassword() ))
         x |= 2;
     if (!x) {
-        const char s_msg[] = "data unchanged";
-        SendCharsChunk( req, s_msg );
+        SendConstChunk( req, "data unchanged" );
         SendFinalChunk( req );
         return ESP_OK;
     }
 #if 1
 	// ESP_LOGI( TAG, "received ssid \"%s\", password \"%s\"", id, pw );
 	if (! s_WebServer->wifi().SetParam( id, pw )) {
-		const char s_err[] = "setting wifi parameter failed - try again";
-		SendCharsChunk( req, s_err );
+		SendConstChunk( req, "setting wifi parameter failed - try again" );
         SendFinalChunk( req );
 		return ESP_OK;
 
 	}
 #endif
-    const char s_ok[] = "configuration has been set";
-    SendCharsChunk( req, s_ok );
+    SendConstChunk( req, "configuration has been set" );
     SendFinalChunk( req );
     return ESP_OK;
 }
 
 static char s_update[] =
-        "<form method=\"post\" enctype=\"multipart/form-data\">"
-                "<label>choose binary file: "
-                "<input name=\"file\" type=\"file\" accept=\"application/octet-stream\">"
-                "</label>"
-                "<br />"
-                "<button>update</button>"
-                "</form>";
+        "  <form method=\"post\" enctype=\"multipart/form-data\">\n"
+        "   <table>\n"
+        "    <tr><td>choose binary file:</td>\n"
+        "     <td><input name=\"file\" type=\"file\" accept=\"application/octet-stream\"></td></tr>\n"
+        "    <tr><td /><td><button type=\"submit\">update</button></td></tr>\n"
+        "   </table>\n"
+        "  </form>\n"
+        "  <br /><br />";
 
 extern "C" esp_err_t handler_get_update( httpd_req_t * req )
 {
+    SendInitialChunk( req );
     SendCharsChunk( req, s_update );
     SendFinalChunk( req );
     return ESP_OK;
@@ -259,12 +297,15 @@ extern "C" esp_err_t handler_get_update( httpd_req_t * req )
 
 extern "C" esp_err_t handler_post_update( httpd_req_t * req )
 {
-    char buf[1024];
+    ESP_LOGD( TAG, "handler_post_update enter" ); EXPRD(vTaskDelay(1))
+
+    char buf[1600];
 
     if (req->content_len <= (2 * sizeof(buf))) {
-        const char s_err[] = "<br /><br />too less data -> please retry";
+        ESP_LOGE( TAG, "unexpected size: %d bytes", req->content_len );
+        SendInitialChunk( req );
         SendCharsChunk( req, s_update );
-        SendCharsChunk( req, s_err );
+        SendConstChunk( req, "too less data -> please retry" );
         SendFinalChunk( req );
         return ESP_OK;
     }
@@ -279,29 +320,42 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
     int remaining = req->content_len - lastlen; // trailing boundary NOT read inside the loop
     int readlen;
 
+    // TIMERG0.wdt_wprotect = TIMG_WDT_WKEY_VALUE;
+    // TIMERG0.wdt_feed = 1;
+    // TIMERG0.wdt_wprotect = 0;
+    ESP_LOGD( TAG, "will read %d bytes", req->content_len ); EXPRD(vTaskDelay(1))
+    int loopCnt = 0;
     while (remaining) {
+        ++loopCnt;
+        WDT_FEED();
         if ((readlen = httpd_req_recv( req, buf, min( remaining, sizeof(buf) ) ))
                 <= 0) {
+            ESP_LOGE( TAG, "loop %d: %d remaining bytes - read failed with %d", loopCnt, remaining, readlen );
+
             if (readlen == HTTPD_SOCK_ERR_TIMEOUT) {
                 continue;  // Retry receiving if timeout occurred
             }
+            SendInitialChunk( req );
+            SendCharsChunk( req, s_update );
             if (!ota) {
-                const char s_err[] = "1st read failed";
-                SendCharsChunk( req, s_err );
+                SendConstChunk( req, "1st read failed" );
             } else {
                 esp_ota_end( ota );
-                const char s_err[] = "sub sequential read failed";
-                SendCharsChunk( req, s_err );
+                SendConstChunk( req, "sub sequential read failed" );
             }
+            SendFinalChunk( req );
             return ESP_OK;
         }
+        ESP_LOGD( TAG, "loop %d: %d remaining bytes - %d bytes read on this loop", loopCnt, remaining, readlen );
+
         if (!ota) {
             char *cp = buf;
             for (nofdashes = 0; *cp == '-'; ++cp)
                 ++nofdashes;
             if (!nofdashes) {
-                const char s_err[] = "boundary dashes (---) missing";
-                SendCharsChunk( req, s_err );
+                SendInitialChunk( req );
+                SendCharsChunk( req, s_update );
+                SendConstChunk( req, "boundary dashes (---) missing" );
                 SendFinalChunk( req );
                 return ESP_OK;
             }
@@ -311,16 +365,18 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
                 *bp++ = *cp++;
             boundarylen = bp - &boundary[0];
             if (!boundarylen) {
-                const char s_err[] = "boundary digit missing";
-                SendCharsChunk( req, s_err );
+                SendInitialChunk( req );
+                SendCharsChunk( req, s_update );
+                SendConstChunk( req, "boundary digit missing" );
                 SendFinalChunk( req );
                 return ESP_OK;
             }
 
             char *start = strchr( cp, 0xe9 );
             if ((!start) || (start >= &buf[readlen]) || (start[-1] != '\n')) {
-                const char s_err[] = "0xe9 on new line missing";
-                SendCharsChunk( req, s_err );
+                SendInitialChunk( req );
+                SendCharsChunk( req, s_update );
+                SendConstChunk( req, "0xe9 on new line missing" );
                 SendFinalChunk( req );
                 return ESP_OK;
             }
@@ -329,8 +385,9 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
             const esp_err_t err = esp_ota_begin( partition, OTA_SIZE_UNKNOWN,
                     &ota );
             if (err != ESP_OK) {
-                const char s_err[] = "OTA initialization failed";
-                SendCharsChunk( req, s_err );
+                SendInitialChunk( req );
+                SendCharsChunk( req, s_update );
+                SendConstChunk( req, "OTA initialization failed" );
                 SendFinalChunk( req );
                 return ESP_OK;
             }
@@ -370,8 +427,9 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
                     ESP_LOGE( TAG, dump );
                 }
 #endif
-                const char s_err[] = "1st OTA write failed";
-                SendCharsChunk( req, s_err );
+                SendInitialChunk( req );
+                SendCharsChunk( req, s_update );
+                SendConstChunk( req, "1st OTA write failed" );
                 SendFinalChunk( req );
                 return ESP_OK;
             }
@@ -379,8 +437,9 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
             const esp_err_t werr = esp_ota_write( ota, buf, readlen );
             if (werr != ESP_OK) {
                 esp_ota_end( ota );
-                const char s_err[] = "sub sequential OTA write failed";
-                SendCharsChunk( req, s_err );
+                SendInitialChunk( req );
+                SendCharsChunk( req, s_update );
+                SendConstChunk( req, "sub sequential OTA write failed" );
                 SendFinalChunk( req );
                 return ESP_OK;
             }
@@ -388,8 +447,9 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
         remaining -= readlen;
     }
     if (!ota) {
-        const char s_err[] = "no data received";
-        SendCharsChunk( req, s_err );
+        SendInitialChunk( req );
+        SendCharsChunk( req, s_update );
+        SendConstChunk( req, "no data received" );
         SendFinalChunk( req );
         return ESP_OK;
     }
@@ -397,13 +457,15 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
     remaining = lastlen;
     char *end = buf;
     while (remaining) {
+        WDT_FEED();
         if ((readlen = httpd_req_recv( req, end, remaining )) <= 0) {
             if (readlen == HTTPD_SOCK_ERR_TIMEOUT) {
                 continue;  // Retry receiving if timeout occurred
             }
             esp_ota_end( ota );
-            const char s_err[] = "last read failed";
-            SendCharsChunk( req, s_err );
+            SendInitialChunk( req );
+            SendCharsChunk( req, s_update );
+            SendConstChunk( req, "last read failed" );
             SendFinalChunk( req );
             return ESP_OK;
         }
@@ -418,13 +480,13 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
         while (*++thisboundary == '-')
             ++thisnofdashes;
         if (thisnofdashes < nofdashes) {
-            // ESP_LOGI( TAG, "%d dash(es) skipped (searching %d dashes) \"%.*s\"", thisnofdashes, nofdashes, end - bp, bp );
+            ESP_LOGD( TAG, "%d dash(es) skipped (searching %d dashes) \"%.*s\"", thisnofdashes, nofdashes, end - bp, bp );
             bp = thisboundary;
             continue;
         }
         bp = thisboundary - nofdashes;  // in case last octet(s) are '-' too
         if (strncmp( thisboundary, boundary, boundarylen )) {
-            // ESP_LOGI( TAG, "boundary skipped (not matching \"%.*s\") \"%.*s\"", boundarylen, boundary, end - bp, bp );
+            ESP_LOGD( TAG, "boundary skipped (not matching \"%.*s\") \"%.*s\"", boundarylen, boundary, end - bp, bp );
             continue;
         }
 
@@ -435,7 +497,7 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
             if ((bp > &buf[0]) && (bp[-1] == '\r'))
                 --bp;
         }
-        ESP_LOGI( TAG, "trailing boundary found: %.*s", end - bp, bp );
+        ESP_LOGD( TAG, "trailing boundary found: %.*s", end - bp, bp );
 #if 0
 		char * ap = bp - 1;
 		while ((ap >= &buf[0]) &&
@@ -453,30 +515,34 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
     const esp_err_t werr = esp_ota_write( ota, buf, end - &buf[0] );
     if (werr != ESP_OK) {
         esp_ota_end( ota );
-        const char s_err[] = "last OTA write failed";
-        SendCharsChunk( req, s_err );
+
+        SendInitialChunk( req );
+        SendCharsChunk( req, s_update );
+        SendConstChunk( req, "last OTA write failed" );
         SendFinalChunk( req );
         return ESP_OK;
     }
 
+    WDT_FEED();
     esp_ota_end( ota );
     esp_ota_set_boot_partition( partition );
 
-    const char s_data1[] = "update to partition ";
-    const char s_data3[] = " succeeded -> please reboot"
-            "<br />"
-            "<form method=\"post\" action=\"/reboot\">"
-            "<button type=\"submit\">reboot</button>"
-            "</form>";
-    SendCharsChunk( req, s_data1 );
+    SendInitialChunk( req );
+    SendCharsChunk( req, s_update );
+    SendConstChunk( req, "update to partition " );
     SendStringChunk( req, partition->label );
-    SendCharsChunk( req, s_data3 );
+    SendConstChunk( req, " succeeded -> please reboot"
+                            "<br />"
+                            "<form method=\"post\" action=\"/reboot\">"
+                            "<button type=\"submit\">reboot</button>"
+                            "</form>" );
     SendFinalChunk( req );
     return ESP_OK;
 }
 
 extern "C" esp_err_t handler_get_reboot( httpd_req_t * req )
 {
+    SendInitialChunk( req );
     static char s_fmt[] = "<form method=\"post\">"
             "<button type=\"submit\">reboot</button>"
             "</form>";
@@ -487,14 +553,8 @@ extern "C" esp_err_t handler_get_reboot( httpd_req_t * req )
 
 extern "C" esp_err_t handler_post_reboot( httpd_req_t * req )
 {
-    const char s_info[] = "<head>"
-            "<meta http-equiv=\"refresh\" content=\"7; URL=/\">"
-            "</head>"
-            "</body>"
-            "This device will reboot - you will get redirected soon"
-            "</body>";
-
-    SendCharsChunk( req, s_info );
+    SendInitialChunk( req, true, "<meta http-equiv=\"refresh\" content=\"7; URL=/\">" );
+    SendConstChunk( req, "This device will reboot - you will get redirected soon" );
     SendFinalChunk( req );
     vTaskDelay( configTICK_RATE_HZ / 10 );
 
@@ -509,6 +569,10 @@ extern "C" esp_err_t handler_post_reboot( httpd_req_t * req )
 const httpd_uri_t uri_main =        { .uri = "/",
                                       .method = HTTP_GET,
                                       .handler = handler_get_main,
+                                      .user_ctx = 0 };
+const httpd_uri_t uri_favicon =     { .uri = "/favicon.ico",
+                                      .method = HTTP_GET,
+                                      .handler = handler_get_favicon,
                                       .user_ctx = 0 };
 const httpd_uri_t uri_get_wifi =    { .uri = "/wifi",
                                       .method = HTTP_GET,
@@ -614,47 +678,45 @@ void WebServer::AddPage( const WebServer::Page & page,
 
 void WebServer::MainPage( httpd_req_t * req )
 {
-//@formatter:off
-    static char s_welcome[] = "<h1>%s</h1>"
-                               "<table border=0>"
-                                "<tr><td>Project version:</td>" "<td>%s</td></tr>"
-                                "<tr><td>IDF version:</td>"     "<td>%s</td></tr>"
-                               "</table>";
-    static char s_br[]     = "<br />";
-//@formatter:on
+    SendInitialChunk( req, false );
 
-    {
-        const esp_app_desc_t *const desc = esp_ota_get_app_description();
-        char *welcome = NULL;
-        int len = asprintf( &welcome, s_welcome, desc->project_name,
-                desc->version, desc->idf_ver );
-        httpd_resp_send_chunk( req, welcome, len );
-        free( welcome );
-    }
-    SendCharsChunk( req, s_br );
+    const esp_app_desc_t *const desc = esp_ota_get_app_description();
+    SendConstChunk( req, "  <h1>" );
+    SendStringChunk( req, desc->project_name );
+    SendConstChunk( req, "</h1>\n"
+                         "  <table border=0>\n"
+                         "   <tr><td>Project version:</td>" "<td>" );
+    SendStringChunk( req, desc->version );
+    SendConstChunk( req, "</td></tr>\n"
+                         "   <tr><td>IDF version:</td>"     "<td>" );
+    SendStringChunk( req, desc->idf_ver );
+    SendConstChunk( req, "</td></tr>\n"
+                         "  </table>\n" );
+
+    SendConstChunk( req, "  <br />\n" );
 
     for (PageList *elem = Anchor; elem; elem = elem->Next) {
-        SendCharsChunk( req, s_br );
-        SendStringChunk( req, "<a href=\"" );
+        SendConstChunk(  req, "  <br />\n" );
+        SendConstChunk(  req, "  <a href=\"" );
         SendStringChunk( req, elem->Page.Uri.uri );
-        SendStringChunk( req, "\">" );
+        SendConstChunk(  req, "\">" );
         SendStringChunk( req, elem->Page.LinkText );
-        SendStringChunk( req, "</a>" );
+        SendConstChunk(  req, "</a>\n" );
     }
-    SendFinalChunk( req );
+    SendFinalChunk( req, false );
 }
 
 void WebServer::Init()
 {
-    ESP_LOGI( TAG, "Registering URI handlers" ); EXPRD(vTaskDelay(1))
+    ESP_LOGI( TAG, "Registering URI handlers" );
     httpd_register_uri_handler( server, &uri_main );
+    httpd_register_uri_handler( server, &uri_favicon );
 
-    ESP_LOGD( TAG, "AddPage wifi" ); EXPRD(vTaskDelay(1))
+    ESP_LOGD( TAG, "AddPage wifi" );
     AddPage( page_wifi, &uri_post_wifi );
 
-    if (1 || mWifi.StationMode()) {
-        ESP_LOGD( TAG, "AddPage update" ); EXPRD(vTaskDelay(1))
-        AddPage( page_update, &uri_post_update );
-    }
+    ESP_LOGD( TAG, "AddPage update" );
+    AddPage( page_update, &uri_post_update );
+
     AddPage( page_reboot, &uri_post_reboot );
 }

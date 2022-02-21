@@ -106,6 +106,8 @@ void Pinpad::OnRelease()
 void Pinpad::Run( Indicator & indicator )
 {
     s_indicatorPtr = & indicator;
+    // s_indicatorPtr->Access( 0 );  // indicate ready
+
     while (true) {
         vTaskDelay( configTICK_RATE_HZ / 50 ); // / 100
 

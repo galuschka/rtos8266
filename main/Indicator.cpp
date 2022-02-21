@@ -20,6 +20,7 @@ Indicator::Indicator( gpio_num_t pinRed, gpio_num_t pinGreen ) :
         mPinRed { pinRed },
         mPinGreen{ pinGreen },
         mBlink { 0 },
+        mBlinkOk { 0 },
         mSigMask { -1 },
         mTaskHandle { 0 },
         mSemaphore { 0 }
@@ -107,7 +108,7 @@ void Indicator::Access( uint8_t ok )
 
 void Indicator::Run()
 {
-    gpio_set_level( mPinGreen, 1 );   // low active - switch off
+    gpio_set_level( mPinGreen, 1 );  // low active - switch off
     int phase = 0;
     while (true) {
         if (mBlinkOk) {
