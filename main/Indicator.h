@@ -25,13 +25,16 @@ public:
         STATUS_IDLE,        // station mode and relay is switched off
         STATUS_ACTIVE,      // station mode and relay is switched on
     };
-    Indicator( gpio_num_t pinRed, gpio_num_t pinGreen );
+    bool Init( gpio_num_t pinRed, gpio_num_t pinGreen );
     void Indicate( STATUS status );
     void Blink( uint8_t num );  // num = number of times on
     void Steady( uint8_t on );  // steady on/off
     void Access( uint8_t ok );  // false: 2x red / true: 1x green
     bool Init();
     void Run();  // internal thread routine
+    static Indicator& Instance();
+
+    Indicator();
 private:
     gpio_num_t mPinRed;
     gpio_num_t mPinGreen;

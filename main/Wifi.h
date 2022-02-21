@@ -37,7 +37,7 @@ private:
 public:
     Wifi();
 
-    void Init( Indicator & indicator, int connTimoInSecs );
+    void Init( int connTimoInSecs );
 
     u32_t GetIpAddr()
     {

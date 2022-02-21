@@ -206,7 +206,7 @@ void Wifi::ModeAp()
     mMode = MODE_ACCESSPOINT;
 }
 
-void Wifi::Init( Indicator & indicator, int connTimoInSecs )
+void Wifi::Init( int connTimoInSecs )
 {
     wifi_init_config_t wifi_init_config = WIFI_INIT_CONFIG_DEFAULT()
     ;
@@ -221,14 +221,14 @@ void Wifi::Init( Indicator & indicator, int connTimoInSecs )
             esp_event_handler_register( IP_EVENT, ESP_EVENT_ANY_ID, & ip_event, this ) );
 
     if (connTimoInSecs && mSsid[0]) {
-        indicator.Indicate( Indicator::STATUS_CONNECT );
+        Indicator::Instance().Indicate( Indicator::STATUS_CONNECT );
         ESP_LOGD( TAG, "ModeSta()" ); EXPRD(vTaskDelay(1))
         if (ModeSta( connTimoInSecs )) {
-            indicator.Indicate( Indicator::STATUS_IDLE );
+            Indicator::Instance().Indicate( Indicator::STATUS_IDLE );
             return;
         }
     }
-    indicator.Indicate( Indicator::STATUS_AP );
+    Indicator::Instance().Indicate( Indicator::STATUS_AP );
     ESP_LOGD( TAG, "ModeAp()" ); EXPRD(vTaskDelay(1))
     ModeAp();
 }

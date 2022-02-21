@@ -16,15 +16,29 @@ extern "C" void IndicatorTask( void * indicator )
     ((Indicator*) indicator)->Run();
 }
 
-Indicator::Indicator( gpio_num_t pinRed, gpio_num_t pinGreen ) :
-        mPinRed { pinRed },
-        mPinGreen{ pinGreen },
+Indicator::Indicator() :
+        mPinRed { GPIO_NUM_MAX },
+        mPinGreen{ GPIO_NUM_MAX },
         mBlink { 0 },
         mBlinkOk { 0 },
         mSigMask { -1 },
         mTaskHandle { 0 },
         mSemaphore { 0 }
 {
+}
+
+static Indicator s_indicator{};
+
+Indicator& Indicator::Instance()
+{
+    return s_indicator;
+}
+
+bool Indicator::Init( gpio_num_t pinRed, gpio_num_t pinGreen ) 
+{
+    mPinRed = pinRed;
+    mPinGreen = pinGreen;
+
     gpio_config_t io_conf;
 
     io_conf.pin_bit_mask = (1 << mPinRed) | (1 << mPinGreen);
@@ -36,13 +50,10 @@ Indicator::Indicator( gpio_num_t pinRed, gpio_num_t pinGreen ) :
     gpio_config( &io_conf );    // configure GPIO with the given settings
     gpio_set_level( mPinRed, 0 );   // low active - switch on
     gpio_set_level( mPinGreen, 0 );   // low active - switch on
-}
 
-bool Indicator::Init()
-{
     mSemaphore = xSemaphoreCreateBinary( );
-    xTaskCreate( IndicatorTask, "Indicator", /*stack size*/1024, this, /*prio*/
-            1, &mTaskHandle );
+    xTaskCreate( IndicatorTask, "Indicator", /*stack size*/1024, this,
+                 /*prio*/ 1, &mTaskHandle );
     if (!mTaskHandle) {
         ESP_LOGE( TAG, "xTaskCreate failed" );
         return false;

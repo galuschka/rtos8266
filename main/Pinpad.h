@@ -26,7 +26,7 @@ public:
     virtual void OnMultiKey( u16 mask ); // additional key pressed or not last key released
     virtual void OnRelease();            // all keys released
 
-    void Run( Indicator & indicator );
+    void Run();
 
 private:
     void RowsOutColsIn();       // fast check: all rows set 1 and colMask is read

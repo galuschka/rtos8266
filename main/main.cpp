@@ -28,6 +28,7 @@ static const unsigned char s_col[] = {  5, 4, 0 };
 #include "WebServer.h"
 
 #include "Indicator.h"
+#include "Updator.h"
 #include "Pinpad.h"
 
 #include "esp_event.h"  // esp_event_loop_create_default()
@@ -68,8 +69,7 @@ extern "C" void app_main()
     // ESP_LOGD( TAG, "enter" ); sys_delay_ms(5000);
 
     // LED on GPIO2:
-    Indicator indicator { GPIO_NUM_2, GPIO_NUM_16 };         // red/green
-    indicator.Init();
+    Indicator::Instance().Init( GPIO_NUM_2, GPIO_NUM_16 ); // red/green
 
     // ESP_LOGD( TAG, "main_nvs_init()" ); EXPRD(vTaskDelay(1))
 
@@ -80,9 +80,12 @@ extern "C" void app_main()
     Wifi wifi;
 
     // ESP_LOGD( TAG, "wifi.Init()" ); EXPRD(vTaskDelay(1))
-    wifi.Init( indicator, 60 );
+    wifi.Init( 60 );
     // Wifi::Init blocks until success (or access point mode)
     // now we can initialize web server:
+
+    ESP_LOGD( TAG, "Updator::Instance().Init()" ); EXPRD(vTaskDelay(1))
+    Updator::Instance().Init( "http://10.9.8.3:8087/keypad.bin" );
 
     ESP_LOGD( TAG, "WebServer()" ); EXPRD(vTaskDelay(1))
     WebServer webServer{ wifi };
@@ -94,6 +97,5 @@ extern "C" void app_main()
     Pinpad pinpad{ s_col, NELEMENTS(s_col), s_row, NELEMENTS(s_row) };
 
     ESP_LOGD( TAG, "pinpad.Run()" ); EXPRD(vTaskDelay(1))
-
-    pinpad.Run( indicator );
+    pinpad.Run();
 }

@@ -66,7 +66,6 @@ void Pinpad::RowsOutColsIn()
     gpio_config( &mOutConf ); // and rows are output
 }
 
-Indicator * s_indicatorPtr = 0;
 u8 s_lastNum = 16;
 
 void Pinpad::OnKeyPress( u8 num )
@@ -95,18 +94,17 @@ void Pinpad::OnRelease()
 
     if (s_lastNum == 7) {
         vTaskDelay( 50 );
-        s_indicatorPtr->Access( 1 );
+        Indicator::Instance().Access( 1 );
     }
     if (s_lastNum == 15) {
         vTaskDelay( 50 );
-        s_indicatorPtr->Access( 0 );
+        Indicator::Instance().Access( 0 );
     }
 }
 
-void Pinpad::Run( Indicator & indicator )
+void Pinpad::Run()
 {
-    s_indicatorPtr = & indicator;
-    // s_indicatorPtr->Access( 0 );  // indicate ready
+    // Indicator::Instance().Access( 0 );  // indicate ready
 
     while (true) {
         vTaskDelay( configTICK_RATE_HZ / 50 ); // / 100
@@ -150,11 +148,11 @@ void Pinpad::Run( Indicator & indicator )
             continue;
 
         if (! numMask) {
-            indicator.Steady( 0 );
+            Indicator::Instance().Steady( 0 );
             OnRelease();
         } else {
             if (! mNumMask) {
-                indicator.Steady( 1 );
+                Indicator::Instance().Steady( 1 );
                 if (numMask == (1 << num))
                     OnKeyPress( num );
                 else

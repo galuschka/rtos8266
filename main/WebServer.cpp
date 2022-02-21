@@ -10,10 +10,11 @@
 #include "WebServer.h"
 
 #include "Wifi.h"
+#include "Updator.h"
 
 #include "esp_log.h"   			// ESP_LOGI()
 #include "esp_event_base.h"   	// esp_event_base_t
-#include "esp_ota_ops.h"   		// esp_ota_begin(), ...
+#include "esp_ota_ops.h"        // esp_ota_get_app_description()
 #include "../favicon.i"         // favicon_ico
 
 // include "esp_task_wdt.h"     // esp_task_wdt_reset(), ...
@@ -277,20 +278,16 @@ extern "C" esp_err_t handler_post_wifi( httpd_req_t * req )
     return ESP_OK;
 }
 
-static char s_update[] =
-        "  <form method=\"post\" enctype=\"multipart/form-data\">\n"
-        "   <table>\n"
-        "    <tr><td>choose binary file:</td>\n"
-        "     <td><input name=\"file\" type=\"file\" accept=\"application/octet-stream\"></td></tr>\n"
-        "    <tr><td /><td><button type=\"submit\">update</button></td></tr>\n"
-        "   </table>\n"
-        "  </form>\n"
-        "  <br /><br />";
-
 extern "C" esp_err_t handler_get_update( httpd_req_t * req )
 {
     SendInitialChunk( req );
-    SendCharsChunk( req, s_update );
+    SendConstChunk( req, "  <form method=\"post\">\n" // enctype=\"multipart/form-data\"
+                         "   <table>\n"
+                      // "    <tr><td>choose binary file:</td>\n"
+                      // "     <td><input name=\"file\" type=\"file\" accept=\"application/octet-stream\"></td></tr>\n"
+                         "    <tr><td /><td><button type=\"submit\">update</button></td></tr>\n"
+                         "   </table>\n"
+                         "  </form>\n"  );
     SendFinalChunk( req );
     return ESP_OK;
 }
@@ -299,244 +296,21 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
 {
     ESP_LOGD( TAG, "handler_post_update enter" ); EXPRD(vTaskDelay(1))
 
-    char buf[1600];
-
-    if (req->content_len <= (2 * sizeof(buf))) {
-        ESP_LOGE( TAG, "unexpected size: %d bytes", req->content_len );
-        SendInitialChunk( req );
-        SendCharsChunk( req, s_update );
-        SendConstChunk( req, "too less data -> please retry" );
-        SendFinalChunk( req );
-        return ESP_OK;
-    }
-
-    const esp_partition_t *partition = 0;
-    esp_ota_handle_t ota = 0;
-
-    unsigned char nofdashes = 0;			// boundary starts with "-------..."
-    unsigned char boundarylen = 0;			// boundary digit length
-    char boundary[30]; 			// magic number (decimal up to 28 digits)
-    int const lastlen = sizeof(buf) / 2; // last read to search trailing boundary
-    int remaining = req->content_len - lastlen; // trailing boundary NOT read inside the loop
-    int readlen;
-
-    // TIMERG0.wdt_wprotect = TIMG_WDT_WKEY_VALUE;
-    // TIMERG0.wdt_feed = 1;
-    // TIMERG0.wdt_wprotect = 0;
-    ESP_LOGD( TAG, "will read %d bytes", req->content_len ); EXPRD(vTaskDelay(1))
-    int loopCnt = 0;
-    while (remaining) {
-        ++loopCnt;
-        WDT_FEED();
-        if ((readlen = httpd_req_recv( req, buf, min( remaining, sizeof(buf) ) ))
-                <= 0) {
-            ESP_LOGE( TAG, "loop %d: %d remaining bytes - read failed with %d", loopCnt, remaining, readlen );
-
-            if (readlen == HTTPD_SOCK_ERR_TIMEOUT) {
-                continue;  // Retry receiving if timeout occurred
-            }
-            SendInitialChunk( req );
-            SendCharsChunk( req, s_update );
-            if (!ota) {
-                SendConstChunk( req, "1st read failed" );
-            } else {
-                esp_ota_end( ota );
-                SendConstChunk( req, "sub sequential read failed" );
-            }
-            SendFinalChunk( req );
-            return ESP_OK;
-        }
-        ESP_LOGD( TAG, "loop %d: %d remaining bytes - %d bytes read on this loop", loopCnt, remaining, readlen );
-
-        if (!ota) {
-            char *cp = buf;
-            for (nofdashes = 0; *cp == '-'; ++cp)
-                ++nofdashes;
-            if (!nofdashes) {
-                SendInitialChunk( req );
-                SendCharsChunk( req, s_update );
-                SendConstChunk( req, "boundary dashes (---) missing" );
-                SendFinalChunk( req );
-                return ESP_OK;
-            }
-            char *bp = boundary;
-            while ((*cp >= '0') && (*cp <= '9')
-                    && (bp < &boundary[sizeof(boundary)]))
-                *bp++ = *cp++;
-            boundarylen = bp - &boundary[0];
-            if (!boundarylen) {
-                SendInitialChunk( req );
-                SendCharsChunk( req, s_update );
-                SendConstChunk( req, "boundary digit missing" );
-                SendFinalChunk( req );
-                return ESP_OK;
-            }
-
-            char *start = strchr( cp, 0xe9 );
-            if ((!start) || (start >= &buf[readlen]) || (start[-1] != '\n')) {
-                SendInitialChunk( req );
-                SendCharsChunk( req, s_update );
-                SendConstChunk( req, "0xe9 on new line missing" );
-                SendFinalChunk( req );
-                return ESP_OK;
-            }
-
-            partition = esp_ota_get_next_update_partition( NULL );
-            const esp_err_t err = esp_ota_begin( partition, OTA_SIZE_UNKNOWN,
-                    &ota );
-            if (err != ESP_OK) {
-                SendInitialChunk( req );
-                SendCharsChunk( req, s_update );
-                SendConstChunk( req, "OTA initialization failed" );
-                SendFinalChunk( req );
-                return ESP_OK;
-            }
-            const esp_err_t werr = esp_ota_write( ota, start,
-                    &buf[readlen] - start );
-            if (werr != ESP_OK) {
-                esp_ota_end( ota );
-#if 1
-                for (int off = 0; off < (readlen - 0x10); off += 0x10) {
-                    char dump[80];
-                    char *cp = dump;
-                    cp += sprintf( cp, "%02x: ", off );
-                    for (int i = 0; i < 16; ++i) {
-                        if ((buf[off + i] >= ' ') && (buf[off + i] < 0x7f)) {
-                            *cp++ = buf[off + i];
-                            if (buf[off + i] == '\\')
-                                *cp++ = '\\';
-                        } else {
-                            *cp++ = '\\';
-                            switch (buf[off + i]) {
-                            case '\r':
-                                *cp++ = 'r';
-                                break;
-                            case '\n':
-                                *cp++ = 'n';
-                                break;
-                            default:
-                                *cp++ = 'x';
-#define hex(x) (((x) < 0x10 ? '0' + (x) : 'a' + (x) - 0x10))
-                                *cp++ = hex( (buf[off + i] >> 4) & 0xf );
-                                *cp++ = hex( buf[off + i] & 0xf );
-                                break;
-                            }
-                        }
-                    }
-                    *cp = 0;
-                    ESP_LOGE( TAG, dump );
-                }
-#endif
-                SendInitialChunk( req );
-                SendCharsChunk( req, s_update );
-                SendConstChunk( req, "1st OTA write failed" );
-                SendFinalChunk( req );
-                return ESP_OK;
-            }
-        } else {
-            const esp_err_t werr = esp_ota_write( ota, buf, readlen );
-            if (werr != ESP_OK) {
-                esp_ota_end( ota );
-                SendInitialChunk( req );
-                SendCharsChunk( req, s_update );
-                SendConstChunk( req, "sub sequential OTA write failed" );
-                SendFinalChunk( req );
-                return ESP_OK;
-            }
-        }
-        remaining -= readlen;
-    }
-    if (!ota) {
-        SendInitialChunk( req );
-        SendCharsChunk( req, s_update );
-        SendConstChunk( req, "no data received" );
-        SendFinalChunk( req );
-        return ESP_OK;
-    }
-
-    remaining = lastlen;
-    char *end = buf;
-    while (remaining) {
-        WDT_FEED();
-        if ((readlen = httpd_req_recv( req, end, remaining )) <= 0) {
-            if (readlen == HTTPD_SOCK_ERR_TIMEOUT) {
-                continue;  // Retry receiving if timeout occurred
-            }
-            esp_ota_end( ota );
-            SendInitialChunk( req );
-            SendCharsChunk( req, s_update );
-            SendConstChunk( req, "last read failed" );
-            SendFinalChunk( req );
-            return ESP_OK;
-        }
-        remaining -= readlen;
-        end += readlen;
-    }
-    for (char *bp = buf; bp < end; ++bp) {
-        if (*bp != '-')
-            continue;
-        int thisnofdashes = 1;
-        char *thisboundary = bp;
-        while (*++thisboundary == '-')
-            ++thisnofdashes;
-        if (thisnofdashes < nofdashes) {
-            ESP_LOGD( TAG, "%d dash(es) skipped (searching %d dashes) \"%.*s\"", thisnofdashes, nofdashes, end - bp, bp );
-            bp = thisboundary;
-            continue;
-        }
-        bp = thisboundary - nofdashes;  // in case last octet(s) are '-' too
-        if (strncmp( thisboundary, boundary, boundarylen )) {
-            ESP_LOGD( TAG, "boundary skipped (not matching \"%.*s\") \"%.*s\"", boundarylen, boundary, end - bp, bp );
-            continue;
-        }
-
-        // we found the trailing boundary at bp
-        // cut [\r[\n]] before bp, if existing:
-        if ((bp > &buf[0]) && (bp[-1] == '\n')) {
-            --bp;
-            if ((bp > &buf[0]) && (bp[-1] == '\r'))
-                --bp;
-        }
-        ESP_LOGD( TAG, "trailing boundary found: %.*s", end - bp, bp );
-#if 0
-		char * ap = bp - 1;
-		while ((ap >= &buf[0]) &&
-				(((*ap >= 0x20) && (*ap < 0x7f)) || (*ap == '\r') || (*ap == '\n')))
-			--ap;
-		++ap;
-		if (ap != bp) {
-			ESP_LOGI( TAG, "ascii data before boundary: %.*s", bp - ap, ap );
-		}
-#endif
-        end = bp;
-        break;
-    }
-    // either end is located at boundary or there is no boundary...
-    const esp_err_t werr = esp_ota_write( ota, buf, end - &buf[0] );
-    if (werr != ESP_OK) {
-        esp_ota_end( ota );
-
-        SendInitialChunk( req );
-        SendCharsChunk( req, s_update );
-        SendConstChunk( req, "last OTA write failed" );
-        SendFinalChunk( req );
-        return ESP_OK;
-    }
-
-    WDT_FEED();
-    esp_ota_end( ota );
-    esp_ota_set_boot_partition( partition );
-
     SendInitialChunk( req );
-    SendCharsChunk( req, s_update );
-    SendConstChunk( req, "update to partition " );
-    SendStringChunk( req, partition->label );
-    SendConstChunk( req, " succeeded -> please reboot"
-                            "<br />"
-                            "<form method=\"post\" action=\"/reboot\">"
-                            "<button type=\"submit\">reboot</button>"
-                            "</form>" );
+                            // enctype=\"multipart/form-data\"
+    SendConstChunk( req, "  <form method=\"post\">\n"
+                         "   <table>\n"
+                         "    <tr><td>url:</td>\n"
+                         "     <td>" );
+    SendStringChunk( req, Updator::Instance().Url() );
+    SendConstChunk( req, "</td></tr>\n"
+                         "    <tr><td /><td><button type=\"submit\">update</button></td></tr>\n"
+                         "    <tr><td>progress:</td><td></td></tr>\n"
+                         "   </table>\n"
+                         "  </form>\n"  );
     SendFinalChunk( req );
+
+    Updator::Instance().Go();
     return ESP_OK;
 }
 
@@ -564,6 +338,7 @@ extern "C" esp_err_t handler_post_reboot( httpd_req_t * req )
     ESP_LOGE( TAG, "esp_restart returned" );
     return ESP_OK;
 }
+
 
 //@formatter:off
 const httpd_uri_t uri_main =        { .uri = "/",
