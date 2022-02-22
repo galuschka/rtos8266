@@ -5,7 +5,7 @@
  *      Author: galuschka
  */
 
-#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+//define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 
 #include "Updator.h"
 
@@ -101,6 +101,12 @@ void Updator::Update( void )
             ESP_LOGE( TAG, "Failed to open HTTP connection: %d", e );
             break;
         }
+        int len = esp_http_client_fetch_headers( client );
+        if (len <= 0) {
+            ESP_LOGE( TAG, "Failed to fetch headers: len = %d", len );
+            break;
+        }
+
         ESP_LOGI(TAG, "Starting OTA...");
         const esp_partition_t *update_partition = NULL;
         update_partition = esp_ota_get_next_update_partition(NULL);
@@ -119,7 +125,6 @@ void Updator::Update( void )
         }
         ESP_LOGI( TAG, "esp_ota_begin succeeded" );
         ESP_LOGI( TAG, "Please Wait. This may take time" );
-
         int binary_file_len = 0;
         while (1) {
             int data_read = esp_http_client_read( client, upgrade_data_buf, CONFIG_OTA_BUF_SIZE );
