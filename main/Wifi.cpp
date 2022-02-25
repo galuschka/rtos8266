@@ -27,6 +27,7 @@ namespace
 {
 const char * const TAG            = "Wifi";
 const char * const s_nvsNamespace = "wifi";
+const char * const s_keyHost      = "host";
 const char * const s_keySsid      = "ssid";
 const char * const s_keyPassword  = "password";
 Wifi         s_wifi{};
@@ -43,8 +44,22 @@ void Wifi::ReadParam()
 
     nvs_handle my_handle;
     if (nvs_open( s_nvsNamespace, NVS_READONLY, &my_handle ) == ESP_OK) {
+        ESP_LOGD( TAG, "Reading Host" ); EXPRD(vTaskDelay(1))
+        size_t len = sizeof(mHost);
+        nvs_get_str( my_handle, s_keyHost, mHost, &len );
+        if (!mHost[0]) {
+            uint8_t mac[6];
+            esp_read_mac( mac, ESP_MAC_WIFI_SOFTAP );
+            const esp_app_desc_t *const app_description =
+                                        esp_ota_get_app_description();
+            snprintf( mHost, sizeof(mHost) - 1, "%.*s-%02x-%02x-%02x",
+                      sizeof(mHost) - 11, app_description->project_name,
+                      mac[3], mac[4], mac[5] );
+            mHost[ sizeof(mHost) - 1 ] = 0;
+        }
+
         ESP_LOGD( TAG, "Reading SSID" ); EXPRD(vTaskDelay(1))
-        size_t len = sizeof(mSsid);
+        len = sizeof(mSsid);
         nvs_get_str( my_handle, s_keySsid, mSsid, &len );
 
         ESP_LOGD( TAG, "Reading password" ); EXPRD(vTaskDelay(1))
@@ -60,21 +75,29 @@ void Wifi::ReadParam()
     }
 }
 
-bool Wifi::SetParam( const char * ssid, const char * password )
+bool Wifi::SetParam( const char * host, const char * ssid, const char * password )
 {
     nvs_handle my_handle;
     if (nvs_open( s_nvsNamespace, NVS_READWRITE, &my_handle ) != ESP_OK)
         return false;
 
-    esp_err_t esp = nvs_set_str( my_handle, s_keySsid, ssid );
-    if (esp == ESP_OK)
-        esp = nvs_set_str( my_handle, s_keyPassword, password );
-    nvs_close( my_handle );
-
-    if (esp == ESP_OK) {
-        strncpy( mSsid, ssid, sizeof(mSsid) );
-        strncpy( mPassword, password, sizeof(mPassword) );
+    esp_err_t esp = ESP_OK;
+    if (host[0]) {
+        esp = nvs_set_str( my_handle, s_keyHost, host );
+        if (esp == ESP_OK)
+            strncpy( mHost, host, sizeof(mHost) );
     }
+    if ((esp == ESP_OK) && ssid[0]) {
+        esp = nvs_set_str( my_handle, s_keySsid, ssid );
+        if (esp == ESP_OK)
+            strncpy( mSsid, ssid, sizeof(mSsid) );
+    }
+    if ((esp == ESP_OK) && password[0]) {
+        esp = nvs_set_str( my_handle, s_keyPassword, password );
+        if (esp == ESP_OK)
+            strncpy( mPassword, password, sizeof(mPassword) );
+    }
+    nvs_close( my_handle );
     return esp == ESP_OK;
 }
 
@@ -178,16 +201,11 @@ void Wifi::ModeAp()
 {
     wifi_config_t wifi_config;
     memset( &wifi_config, 0, sizeof(wifi_config_t) );
-    {
-        uint8_t mac[6];
-        esp_read_mac( mac, ESP_MAC_WIFI_SOFTAP );
-        const esp_app_desc_t *const app_description =
-                esp_ota_get_app_description();
-        wifi_config.ap.ssid_len = snprintf( (char*) wifi_config.ap.ssid,
-                sizeof(wifi_config.ap.ssid), "%.*s-%02x-%02x-%02x",
-                sizeof(wifi_config.ap.ssid) - 10, app_description->project_name,
-                mac[3], mac[4], mac[5] );
-    }
+
+    strncpy( (char*) wifi_config.ap.ssid, mHost, sizeof(wifi_config.ap.ssid) - 1 );
+    wifi_config.ap.ssid[ sizeof(wifi_config.ap.ssid) - 1 ] = 0;
+    wifi_config.ap.ssid_len = strlen( (char*) wifi_config.ap.ssid );
+
     if (mPassword[0]) {
         wifi_config.ap.authmode = WIFI_AUTH_WPA_WPA2_PSK;
         strncpy( (char*) wifi_config.ap.password, mPassword, sizeof(wifi_config.ap.password) );

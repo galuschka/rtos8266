@@ -49,24 +49,31 @@ void SendStringChunk( httpd_req_t * req, const char * string )
 
 void SendInitialChunk( httpd_req_t * req, const char * subheader = 0, const char * meta = 0 )
 {
+    const char * const host = Wifi::Instance().GetHost();
+
     SendConstChunk( req, "<!DOCTYPE html>\n"
                          "<html>\n"
                          " <head><meta charset=\"utf-8\"/>" );
     if (meta) {
         SendStringChunk( req, meta );
     }
-    SendConstChunk( req, "\n </head>\n"
+    SendConstChunk( req, "  <title>" );
+    SendStringChunk( req, host );
+    if (subheader) {
+        SendConstChunk( req, " - " );
+        SendStringChunk( req, subheader );
+    }
+    SendConstChunk( req, "</title>\n </head>\n"
                            " <body>\n" );
-    const esp_app_desc_t *const desc = esp_ota_get_app_description();
     if (subheader) {
         SendConstChunk( req, "  <h1><a href=\"/\">" );
-        SendStringChunk( req, desc->project_name );
+        SendStringChunk( req, Wifi::Instance().GetHost() );
         SendConstChunk( req, "</a></h1>\n  <h2>" );
         SendStringChunk( req, subheader );
         SendConstChunk( req, "  </h2>\n" );
     } else {
         SendConstChunk( req, "  <h1>" );
-        SendStringChunk( req, desc->project_name );
+        SendStringChunk( req, Wifi::Instance().GetHost()  );
         SendConstChunk( req, "</h1>\n" );
     }
 }
@@ -80,10 +87,18 @@ class Parser
         uint8_t      len;  // input to parse: buf size / output: length
         Input( const char * akey, char * abuf, uint8_t size ) : key{akey}, buf{abuf}, len{size} {};
     };
+    Parser( Input * inArray, uint8_t nofFields ) : mInArray{inArray}, mNofFields{nofFields}, mFieldsParsed{0} {};
+
+    bool ParsePostData( httpd_req_t * req );
+    bool ParseUriParam( httpd_req_t * req );
+    uint8_t Fields() { return mFieldsParsed; };  // +fields without ...=value
+  private:
+    bool Parse( const char * str, const char * end );
+    void ClearUnparsed();
+
     Input * mInArray;
     uint8_t mNofFields;
-    Parser( Input * inArray, uint8_t nofFields ) : mInArray{inArray}, mNofFields{nofFields} {};
-    bool parse( httpd_req_t * req );
+    uint8_t mFieldsParsed;
 };
 
 void SendFinalChunk( httpd_req_t * req, bool link2parent = true )
@@ -111,11 +126,30 @@ extern "C" esp_err_t handler_get_favicon( httpd_req_t * req )
     return ESP_OK;
 }
 
-bool Parser::parse( httpd_req_t * req )
+bool Parser::ParseUriParam( httpd_req_t * req )
 {
-    uint32_t fieldsParsed = 0;
+    const char * str = strchr( req->uri, '?' );
+    if (str) {
+        ++str;
+        const char * const strend = strchr( str, 0 );
+        while (str < strend) {
+            const char * ampersand = strchr( str + 2, '&' );
+            if (! ampersand)
+                ampersand = strend;
+            if (! Parse( str, ampersand )) {
+                return false;
+            }
+            str = ampersand + 1;
+        }
+    }
 
-    char buf[64];
+    ClearUnparsed();
+    return true;
+}
+
+bool Parser::ParsePostData( httpd_req_t * req )
+{
+    char buf[100];
     char * readend = buf;
     char * const bufend = &buf[sizeof(buf) - 1];
     int remaining = req->content_len;
@@ -136,53 +170,70 @@ bool Parser::parse( httpd_req_t * req )
             readend += readlen;
             *readend = 0;
         }
-        char * const questmark = strchr( buf + 2, '?' );
-        if (questmark) {
-            *questmark = 0;
-        }
-        char * const equalsign = strchr( buf, '=' );
-        if (! equalsign) {
-            ESP_LOGE( TAG, "'=' missing in query string" );
+        const char * ampersand = strchr( buf + 2, '&' );
+        if (! ampersand)
+            ampersand = readend;
+        if (! Parse( buf, ampersand )) {
             return false;
         }
-        *equalsign = 0;
-        for (uint8_t i = 0; i < mNofFields; ++i) {
-            Input * const in = & mInArray[i];
-            if (strcmp( buf, in->key ) || (fieldsParsed & (1 << i)))
-                continue;
-            // key match:
-            fieldsParsed |= 1 << i;
-            char * bp = in->buf;
-            for (char * val = equalsign + 1; *val; ++val) {
-                if ((*val == '%') && val[1] && val[2]) {
-                    *bp = (((val[1] + ((val[1] >> 6) & 1) * 9) & 0xf) << 4)
-                         | ((val[2] + ((val[2] >> 6) & 1) * 9) & 0xf);
-                    val += 2;
-                } else
-                    *bp = *val;
-                ++bp;
-                if (bp >= & in->buf[in->len - 1])
-                    break;
-            }
-            *bp = 0;
-            in->len = bp - in->buf;
-        }
-        if (questmark) {
-            uint8_t move = readend - questmark;  // incl. \0
-            memmove( buf, questmark + 1, move );
+        if (ampersand != readend) {
+            uint8_t move = readend - ampersand;  // incl. \0
+            memmove( buf, ampersand + 1, move );
             readend = &buf[move - 1];
         } else
             readend = buf;
     } // while remaining || readend != buf
 
+    ClearUnparsed();
+    return true;
+}
+
+bool Parser::Parse( const char * str, const char * end )
+{
+    const char * equalsign = strchr( str + 1, '=' );
+    if ((! equalsign) || (equalsign > end))
+        equalsign = end;
+
+    uint8_t const keylen = (uint8_t) (equalsign - str);
+
+    for (uint8_t i = 0; i < mNofFields; ++i) {
+        Input * const in = & mInArray[i];
+        if ((mFieldsParsed & (1 << i))
+            || strncmp( str, in->key, keylen )
+            || in->key[keylen])
+            continue;
+
+        // key match:
+        mFieldsParsed |= 1 << i;
+        char * bp = in->buf;
+        for (const char * val = equalsign + 1; val < end; ++val) {
+            if ((*val == '%') && ((val+2) < end)) {
+                *bp = (((val[1] + ((val[1] >> 6) & 1) * 9) & 0xf) << 4)
+                     | ((val[2] + ((val[2] >> 6) & 1) * 9) & 0xf);
+                val += 2;
+            } else
+                *bp = *val;
+            ++bp;
+            if (bp >= & in->buf[in->len - 1])
+                break;
+        }
+        *bp = 0;
+        in->len = bp - in->buf;
+        return true;
+    }
+    ESP_LOGI( TAG, "parsed unknown key %.*s", keylen, str );
+    return true;  // silently skip unknown fields
+}
+
+void Parser::ClearUnparsed()
+{
     for (uint8_t i = 0; i < mNofFields; ++i)
-        if (! (fieldsParsed & (1 << i))) {
+        if (! (mFieldsParsed & (1 << i))) {
             mInArray[i].len = 0;
             mInArray[i].buf[0] = 0;
         }
-
-    return true;
 }
+
 
 
 extern "C" esp_err_t handler_get_wifi( httpd_req_t * req )
@@ -191,17 +242,31 @@ extern "C" esp_err_t handler_get_wifi( httpd_req_t * req )
     SendConstChunk( req, "<form method=\"post\">"
                              "<table border=0>"
                               "<tr>"
-                               "<td>SSID:</td>"
-                               "<td><input type=\"text\" name=\"id\" value=\"" );
-    const char * const id = Wifi::Instance().GetSsid();
-    if (id && *id) {
-        SendStringChunk( req, id );
+                               "<td>Hostname:</td>"
+                               "<td><input type=\"text\" name=\"host\" value=\"" );
+    {
+        const char * const host = Wifi::Instance().GetHost();
+        if (host && *host)
+            SendStringChunk( req, host );
     }
     SendConstChunk( req, "\" maxlength=15></td>"
+                               "<td>(used also as SSID in AP mode)</td>"
+                              "</tr>\n   "
+                              "<tr>"
+                               "<td>SSID:</td>"
+                               "<td><input type=\"text\" name=\"id\" value=\"" );
+    {
+        const char * const id = Wifi::Instance().GetSsid();
+        if (id && *id)
+            SendStringChunk( req, id );
+    }
+    SendConstChunk( req, "\" maxlength=15></td>"
+                               "<td>(remote SSID in station mode)</td>"
                               "</tr>\n   "
                               "<tr>"
                                "<td>Password:</td>"
                                "<td><input type=\"password\" name=\"pw\" maxlength=31></td>"
+                               "<td>(keep empty to not change)</td>"
                               "</tr>\n   "
                               "<tr>"
                                "<td />"
@@ -223,38 +288,34 @@ extern "C" esp_err_t handler_post_wifi( httpd_req_t * req )
         return ESP_OK;
     }
 
+    char host[16];
     char id[16];
     char pw[32];
-    Parser::Input in[] = { {"id",id,sizeof(id)}, {"pw",pw,sizeof(pw)} };
+    Parser::Input in[] = { { "host", host, sizeof(host) },
+                           { "id",   id,   sizeof(id)   },
+                           { "pw",   pw,   sizeof(pw)   } };
     Parser parser{ in, sizeof(in) / sizeof(in[0]) };
 
-    if (! parser.parse( req )) {
+    if (! parser.ParsePostData( req )) {
         SendConstChunk( req, "unexpected end of data while parsing data" );
         SendFinalChunk( req );
         return ESP_OK;
     }
 
-    if ((! in[0].len) || (! in[1].len)) {
-        if (! in[0].len) SendConstChunk( req, "SSID not set" );
-        if ((! in[0].len) && (! in[1].len)) SendConstChunk( req, " and " );
-        if (! in[1].len) SendConstChunk( req, "Password not set" );
-        SendFinalChunk( req );
-        return ESP_OK;
-    }
-
-    uint8_t diff;
-    if (strcmp( id, Wifi::Instance().GetSsid() ))
-        diff |= 1;
-    if (strcmp( pw, Wifi::Instance().GetPassword() ))
-        diff |= 2;
-    if (!diff) {
+    if (! strcmp( host, Wifi::Instance().GetHost() ))
+        host[0] = 0;
+    if (! strcmp( id, Wifi::Instance().GetSsid() ))
+        id[0] = 0;
+    if (! strcmp( pw, Wifi::Instance().GetPassword() ))
+        pw[0] = 0;
+    if (! (host[0] || id[0] || pw[0])) {
         SendConstChunk( req, "data unchanged" );
         SendFinalChunk( req );
         return ESP_OK;
     }
 
-	// ESP_LOGI( TAG, "received ssid \"%s\", password \"%s\"", id, pw );
-	if (! Wifi::Instance().SetParam( id, pw )) {
+	// ESP_LOGI( TAG, "received host \"%s\", ssid \"%s\", password \"%s\"", host, id, pw );
+	if (! Wifi::Instance().SetParam( host, id, pw )) {
 		SendConstChunk( req, "setting wifi parameter failed - try again" );
         SendFinalChunk( req );
 		return ESP_OK;
@@ -269,43 +330,56 @@ extern "C" esp_err_t handler_get_update( httpd_req_t * req )
 {
     Updator &updator = Updator::Instance();
     uint8_t progress = updator.Progress();
-    if ((progress == 0) || (progress == 95) || (progress >= 99)) {
+    if ((progress == 0) || (progress == 90) || (progress == 95) || (progress >= 99)) {
         SendInitialChunk( req, s_subUpdate );
         SendConstChunk( req, "  <form method=\"post\">\n" // enctype=\"multipart/form-data\"
                              "   <table>\n"
-                             "    <tr><td>uri:</td>\n"
+                             "    <tr><td align=\"right\">uri:</td><td>&nbsp;</td>\n"
                              "     <td>" );
-        if (progress != 95)
-            SendConstChunk( req, "<input type=\"text\" name=\"uri\" value=\"" );
         const char * const uri = updator.GetUri();
-        if (uri && *uri)
-            SendStringChunk( req, uri );
-        if (progress != 95)
+        if ((progress == 0) || (progress >= 99)) {
+            SendConstChunk( req, "<input type=\"text\" name=\"uri\" value=\"" );
+            if (uri && *uri)
+                SendStringChunk( req, uri );
             SendConstChunk( req, "\" maxlength=79 alt=\"setup a web server for download to the device\">" );
-        SendConstChunk( req, "</td></tr>\n"
-                             "    <tr><td>" );
+        } else if (uri && *uri)
+            SendStringChunk( req, uri );
+        SendConstChunk( req, "</td></tr>\n" );
         const char * text = 0;
         switch (progress)
         {
+            case  90: text = "wait for reboot"; break;
             case  95: text = "test booting"; break;
             case  99: text = "update failed"; break;
             case 100: text = "update succeeded"; break;
         }
-        if (text && *text)
+        if (text && *text) {
+            SendConstChunk( req, "    <tr><td align=\"right\">status:</td><td /><td>" );
             SendStringChunk( req, text );
-        SendConstChunk( req, "</td><td><button type=\"submit\">" );
+            SendConstChunk( req, "</td></tr>\n" );
+        }
+        SendConstChunk( req, "    <tr><td /><td /><td><button type=\"submit\">" );
         text = 0;
         switch (progress)
         {
             case   0: text = "start update"; break;
+            case  90: text = "reboot"; break;
             case  95: text = "confirm well booting"; break;
-            case  99: text = "restart update"; break;
-            case 100: text = "again update"; break;
+            case  99: text = "retry update"; break;
+            case 100: text = "update again"; break;
         }
         if (text && *text)
             SendStringChunk( req, text );
-        SendConstChunk( req, "</button></td></tr>\n"
-                             "   </table>\n"
+        SendConstChunk( req, "</button></td></tr>\n" );
+        if (progress == 99) {
+            const char * msg = updator.GetMsg();
+            if (msg && *msg) {
+                SendConstChunk( req, "    <tr><td align=\"right\">last status:</td><td /><td>" );
+                SendStringChunk( req, msg );
+                SendConstChunk( req, "</td></tr>\n" );
+            }
+        }
+        SendConstChunk( req, "   </table>\n"
                              "  </form>\n" );
         SendFinalChunk( req );
         return ESP_OK;
@@ -313,17 +387,19 @@ extern "C" esp_err_t handler_get_update( httpd_req_t * req )
 
     SendInitialChunk( req, s_subUpdate, "<meta http-equiv=\"refresh\" content=\"1; URL=/update\">" );
     SendConstChunk( req, "  <table>\n"
-                         "   <tr><td>uri:</td><td>" );
+                         "   <tr><td align=\"right\">uri:</td><td>&nbsp;</td><td>" );
     SendStringChunk( req, updator.GetUri() );
     SendConstChunk( req, "</td></tr>\n"
-                         "   <tr><td /><td>update in progress</td></tr>\n"
-                         "    <tr><td>progress:</td><td>" );
+                         "   <tr><td align=\"right\">status:</td><td /><td>update in progress</td></tr>\n"
+                         "   <tr><td align=\"right\">progress:</td><td /><td><progress value=\"" );
     char buf[8];
     sprintf( buf, "%d", progress );
     SendStringChunk( req, buf );
-    SendConstChunk( req, "&nbsp;&percnt;</td></tr>\n"
-                         "   <tr><td>message:</td><td>" );
-    SendStringChunk( req, updator.GetMsg() );
+    SendConstChunk( req, "\" max=\"100\"></progress></td></tr>\n"
+                         "   <tr><td align=\"right\">status:</td><td /><td>" );
+    const char * msg = updator.GetMsg();
+    if (msg && *msg)
+        SendStringChunk( req, msg );
     SendConstChunk( req, "</td></tr>\n"
                          "   </table>\n" );
     SendFinalChunk( req );
@@ -336,9 +412,25 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
 
     Updator &updator = Updator::Instance();
     uint8_t progress = updator.Progress();
+    if (progress == 90) {
+        SendInitialChunk( req, s_subUpdate, "<meta http-equiv=\"refresh\" content=\"10; URL=/update\">" );
+        SendConstChunk( req, "  <h3>system will reboot...</h3>\n"
+                                "  <br />\n"
+                                "  <br />This page should become refreshed automatically, when system is up again.\n"
+                                "  <br />\n"
+                                "  <br />When the device does not boot properly, power off and on.\n"
+                                "  <br />This will again activate the old image as fallback image.\n"
+                                "  <br />\n"
+                                "  <br />On proper boot up, you have to confirm this by the button\n"
+                                "  <br />shown in this sub page after the page has been refreshed.\n" );
+        SendFinalChunk( req );
+        vTaskDelay( configTICK_RATE_HZ / 4 );  // give http stack a chance to send out
+        esp_restart();
+    }
     if ((progress > 0) && (progress < 99)) {
         if (progress == 95)
             updator.Confirm();
+
         SendInitialChunk( req, s_subUpdate, "<meta http-equiv=\"refresh\" content=\"1; URL=/update\">" );
         SendFinalChunk( req );
         return ESP_OK;
@@ -348,7 +440,7 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
     Parser::Input in[] = { {"uri",uri,sizeof(uri)} };
     Parser parser{ in, sizeof(in) / sizeof(in[0]) };
 
-    if (! parser.parse( req )) {
+    if (! parser.ParsePostData( req )) {
         SendInitialChunk( req, s_subUpdate );
         SendConstChunk( req, "unexpected end of data while parsing data" );
         SendFinalChunk( req );
@@ -365,12 +457,12 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
         SendInitialChunk( req, s_subUpdate );
         SendConstChunk( req, "  <form method=\"post\">\n" // enctype=\"multipart/form-data\"
                              "   <table>\n"
-                             "    <tr><td>uri:</td>\n"
+                             "    <tr><td align=\"right\">uri:</td><td>&nbsp;</td>\n"
                              "     <td><input type=\"text\" name=\"uri\" value=\"" );
         SendStringChunk( req, uri );
         SendConstChunk( req, "\" maxlength=79 alt=\"setup a web server for download to the device\"></td></tr>\n"
-                             "    <tr><td /><td><button type=\"submit\">try again</button></td></tr>\n"
-                             "    <tr><td>message:</td><td>" );
+                             "    <tr><td /><td /><td><button type=\"submit\">try again</button></td></tr>\n"
+                             "    <tr><td align=\"right\">status:</td><td /><td>" );
         SendStringChunk( req, err );
         SendConstChunk( req, "</td></tr>\n"
                              "   </table>\n" );
@@ -380,12 +472,12 @@ extern "C" esp_err_t handler_post_update( httpd_req_t * req )
 
     SendInitialChunk( req, s_subUpdate, "<meta http-equiv=\"refresh\" content=\"1; URL=/update\">" );
     SendConstChunk( req, "   <table>\n"
-                         "    <tr><td>uri:</td>\n"
+                         "    <tr><td align=\"right\">uri:</td><td>&nbsp;</td>\n"
                          "     <td>" );
     SendStringChunk( req, updator.GetUri() );
     SendConstChunk( req, "</td></tr>\n"
-                         "    <tr><td /><td>update started</td></tr>\n"
-                         "    <tr><td>progress:</td><td>1&nbsp;&percnt;</td></tr>\n"
+                         "    <tr><td align=\"right\">status:</td><td /><td>triggering update</td></tr>\n"
+                         "    <tr><td align=\"right\">progress:</td><td /><td><progress value=\"0\" max=\"100\"></progress></td></tr>\n"
                          "   </table>\n" );
     SendFinalChunk( req );
     updator.Go();
@@ -417,6 +509,61 @@ extern "C" esp_err_t handler_post_reboot( httpd_req_t * req )
     return ESP_OK;
 }
 
+extern "C" esp_err_t handler_get_readflash( httpd_req_t * req )
+{
+    unsigned long addr = 0;
+    unsigned long size = 0;
+    {
+        char addrBuf[16];
+        char sizeBuf[16];
+        Parser::Input in[] = { { "addr", addrBuf, sizeof(addrBuf) },
+                               { "size", sizeBuf, sizeof(sizeBuf) } };
+        Parser parser{ in, sizeof(in) / sizeof(in[0]) };
+
+        if (! parser.ParseUriParam( req )) {
+            SendConstChunk( req, "unexpected end of data while parsing data" );
+            httpd_resp_send_chunk( req, 0, 0 );
+            return ESP_FAIL;
+        }
+        char * end = 0;
+        const char * addrErr = 0;
+        const char * sizeErr = 0;
+        if (addrBuf[0]) {
+            addr = strtoul( addrBuf, & end, 0 );
+            if (*end)
+                addrErr = "invalid address";
+        }
+        if (! sizeBuf[0])
+            sizeErr = "no size specified";
+        else {
+            size = strtoul( sizeBuf, & end, 0 );
+            if (*end)
+                sizeErr = "invalid size";
+            else if (! size)
+                sizeErr = "size 0 not allowed";
+        }
+        if (addrErr || sizeErr) {
+            if (addrErr)
+                SendStringChunk( req, addrErr );
+            if (addrErr && sizeErr)
+                SendConstChunk( req, " and " );
+            if (sizeErr)
+                SendStringChunk( req, sizeErr );
+            httpd_resp_send_chunk( req, 0, 0 );
+            return ESP_FAIL;
+        }
+    }
+    char buf[0x400];
+    while (size) {
+        unsigned long len = size < sizeof(buf) ? size : sizeof(buf);
+        spi_flash_read(       addr, buf, len );
+        httpd_resp_send_chunk( req, buf, len );
+        addr += len;
+        size -= len;
+    }
+    httpd_resp_send_chunk( req, 0, 0 );
+    return ESP_OK;
+}
 
 //@formatter:off
 const httpd_uri_t uri_main =        { .uri = "/",
@@ -426,6 +573,10 @@ const httpd_uri_t uri_main =        { .uri = "/",
 const httpd_uri_t uri_favicon =     { .uri = "/favicon.ico",
                                       .method = HTTP_GET,
                                       .handler = handler_get_favicon,
+                                      .user_ctx = 0 };
+const httpd_uri_t uri_readflash =   { .uri = "/readflash",
+                                      .method = HTTP_GET,
+                                      .handler = handler_get_readflash,
                                       .user_ctx = 0 };
 const httpd_uri_t uri_get_wifi =    { .uri = "/wifi",
                                       .method = HTTP_GET,
@@ -462,6 +613,7 @@ extern "C" httpd_handle_t start_webserver( void )
 {
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.max_uri_handlers = 12;
 
     // Start the httpd server
     ESP_LOGI( TAG, "Starting web server on port: '%d'", config.server_port );
@@ -528,10 +680,10 @@ void WebServer::MainPage( httpd_req_t * req )
 
     const esp_app_desc_t *const desc = esp_ota_get_app_description();
     SendConstChunk( req, "  <table border=0>\n"
-                         "   <tr><td>Project version:</td>" "<td>" );
+                         "   <tr><td>Project version:</td>" "<td>&nbsp;</td>" "<td>" );
     SendStringChunk( req, desc->version );
     SendConstChunk( req, "</td></tr>\n"
-                         "   <tr><td>IDF version:</td>"     "<td>" );
+                         "   <tr><td>IDF version:</td>"     "<td />" "<td>" );
     SendStringChunk( req, desc->idf_ver );
     SendConstChunk( req, "</td></tr>\n"
                          "  </table>\n" );
@@ -557,6 +709,7 @@ void WebServer::Init()
     ESP_LOGI( TAG, "Registering URI handlers" );
     httpd_register_uri_handler( mServer, &uri_main );
     httpd_register_uri_handler( mServer, &uri_favicon );
+    httpd_register_uri_handler( mServer, &uri_readflash );
 
     ESP_LOGD( TAG, "AddPage wifi" );
     AddPage( page_wifi, &uri_post_wifi );

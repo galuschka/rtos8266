@@ -36,7 +36,7 @@ private:
 
     uint8_t           mProgress   {0};   // 0: idle / 1:..94,96..98: progress / 95: confirm / 99: failed / 100: success
     char              mUri[80]    {""};  // http://my.really.long.uri:8888/to/firmware/location/is/67/in/length
-    char              mMsg[80]    {""};  // more information about status
+    const char      * mMsg        {0};   // status information
     TaskHandle_t      mTaskHandle {0};
     SemaphoreHandle_t mSemaphore  {0};
 };
