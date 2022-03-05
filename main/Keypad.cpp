@@ -9,6 +9,7 @@
 
 #include "Keypad.h"
 #include "Indicator.h"
+#include "Mqtinator.h"
 
 #include "esp_log.h"        // ESP_LOGI()
 
@@ -70,7 +71,7 @@ u8 s_lastNum = 16;
 
 void Keypad::OnKeyPress( u8 num )
 {
-    int c = num + '0';
+    char c = num + '0';
     switch (num) {
         case 10: c = 'A'; break;
         case 11: c = 'B'; break;
@@ -79,32 +80,40 @@ void Keypad::OnKeyPress( u8 num )
         case 14: c = '#'; break;
         case 15: c = '*'; break;
     }
-    ESP_LOGI( TAG, "key %c - mask = 0%o", c, 1 << num );
-    s_lastNum = num;
+    ESP_LOGI( TAG, "key %c - mask = %#x", c, 1 << num );
+
+    static char s_buf[2] = "x";
+    s_buf[0] = c;
+    Mqtinator::Instance().Pub( "key", s_buf );
 }
 
 void Keypad::OnMultiKey( u16 mask )
 {
-    ESP_LOGI( TAG, "key ev - mask = 0%o", mask );
+    ESP_LOGI( TAG, "key ev - mask = %#x", mask );
+
+    static char s_buf[8];
+    char * bp = & s_buf[sizeof(s_buf) - 1];
+    *bp = 0;
+    do {
+        *--bp = (mask & 0xf) + '0' + ((((mask & 0xf) / 10) * ('A' - '0' - 10)));
+        mask >>= 4;
+    } while (mask && (bp > s_buf));
+    if (bp >= &s_buf[2]) {
+        *--bp = 'x';  // leading 0x
+        *--bp = '0';
+    }
+    Mqtinator::Instance().Pub( "mask", bp );
 }
 
 void Keypad::OnRelease()
 {
     ESP_LOGD( TAG, "key rel. (mask = 0)" );
-
-    if (s_lastNum == 7) {
-        vTaskDelay( 50 );
-        Indicator::Instance().Access( 1 );
-    }
-    if (s_lastNum == 15) {
-        vTaskDelay( 50 );
-        Indicator::Instance().Access( 0 );
-    }
+    Mqtinator::Instance().Pub( "mask", "0" );
 }
 
 void Keypad::Run()
 {
-    // Indicator::Instance().Access( 0 );  // indicate ready
+    /// Indicator::Instance().Access( 0 );  // indicate ready
 
     while (true) {
         vTaskDelay( configTICK_RATE_HZ / 50 ); // / 100

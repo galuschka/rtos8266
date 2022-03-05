@@ -97,6 +97,7 @@ bool Wifi::SetParam( const char * host, const char * ssid, const char * password
         if (esp == ESP_OK)
             strncpy( mPassword, password, sizeof(mPassword) );
     }
+    nvs_commit( my_handle );
     nvs_close( my_handle );
     return esp == ESP_OK;
 }

@@ -24,11 +24,11 @@ static const unsigned char s_col[] = {  5, 4, 0 };
 
 //define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 
-#include "Wifi.h"
-#include "WebServer.h"
-
 #include "Indicator.h"
+#include "Wifi.h"
 #include "Updator.h"
+#include "Mqtinator.h"
+#include "WebServer.h"
 #include "Keypad.h"
 
 #include "esp_event.h"  // esp_event_loop_create_default()
@@ -43,6 +43,12 @@ static const unsigned char s_col[] = {  5, 4, 0 };
 #endif
 
 static const char *TAG = "main";
+
+extern "C" void OnFlash( const char * topic, const char * data )
+{
+    ESP_LOGD( TAG, "got \"%s\" \"%s\"", topic, data );
+    Indicator::Instance().Access( *data & 1 );
+}
 
 void main_nvs_init()
 {
@@ -82,12 +88,18 @@ extern "C" void app_main()
     ESP_LOGD( TAG, "Updator..." ); EXPRD(vTaskDelay(1))
     Updator::Instance().Init();
 
+    ESP_LOGD( TAG, "Mqtinator..." ); EXPRD(vTaskDelay(1))
+    Mqtinator & mqtinator = Mqtinator::Instance();
+    mqtinator.Init();
+    mqtinator.Sub( "flash", & OnFlash );
+
+
     ESP_LOGD( TAG, "WebServer..." ); EXPRD(vTaskDelay(1))
     WebServer::Instance().Init();
 
     ESP_LOGD( TAG, "Keypad..." ); EXPRD(vTaskDelay(1))
-    Keypad pinpad{ s_col, NELEMENTS(s_col), s_row, NELEMENTS(s_row) };
+    Keypad keypad{ s_col, NELEMENTS(s_col), s_row, NELEMENTS(s_row) };
 
-    ESP_LOGD( TAG, "pinpad.Run()" ); EXPRD(vTaskDelay(1))
-    pinpad.Run();
+    ESP_LOGD( TAG, "keypad.Run()" ); EXPRD(vTaskDelay(1))
+    keypad.Run();
 }

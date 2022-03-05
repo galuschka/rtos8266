@@ -61,9 +61,14 @@ bool Updator::Init()
             if (spi_flash_read(otadata->address + ((int) i * SPI_FLASH_SEC_SIZE), &s, sizeof(esp_ota_select_entry_t)) == ESP_OK) {
                 ESP_LOGD( TAG, "read ota_select[%d]: ota_seq = 0x%02x (%% %d = %d; running 0x%02x), test_stage = 0x%08x",
                                                 i, s.ota_seq, n, s.ota_seq % n, running->subtype, s.test_stage );
-                if ((s.test_stage == OTA_TEST_STAGE_TESTING) && ((s.ota_seq % n) == (running->subtype & PART_SUBTYPE_OTA_MASK))) {
+                uint8_t const lz = __builtin_clz(s.test_stage);
+                bool const isMask = ((s.test_stage + 1) == (0x80000000 >> (lz - 1)));
+                if (isMask
+                    && ((lz & 3) == OTA_TEST_STAGE_LZ_MOD4_TESTING)
+                    && ((s.ota_seq % n) == (running->subtype & PART_SUBTYPE_OTA_MASK))) {
                     ESP_LOGI( TAG, "test of ota image %d in progress - set progress to \"test to be confirmed\"", s.ota_seq % n );
                     mProgress = 95; // to confirm
+                    return true;
                 }
             }
         }
@@ -104,6 +109,7 @@ bool Updator::SetUri( const char * uri )
     if (nvs_open( s_nvsNamespace, NVS_READWRITE, &my_handle ) != ESP_OK)
         return false;
     esp_err_t esp = nvs_set_str( my_handle, s_keyUri, uri );
+    nvs_commit( my_handle );
     nvs_close( my_handle );
 
     if (esp == ESP_OK) {
@@ -146,10 +152,15 @@ bool Updator::Confirm( void )
             if (spi_flash_read(otadata->address + ((int) i * SPI_FLASH_SEC_SIZE), &s, sizeof(esp_ota_select_entry_t)) == ESP_OK) {
                 ESP_LOGD( TAG, "read ota_select[%d]: ota_seq = 0x%02x (%% %d = %d; running 0x%02x), test_stage = 0x%08x",
                                                 i, s.ota_seq, n, s.ota_seq % n, running->subtype, s.test_stage );
-                if ((s.test_stage == OTA_TEST_STAGE_TESTING) && ((s.ota_seq % n) == (running->subtype & PART_SUBTYPE_OTA_MASK))) {
+
+                uint8_t const lz = __builtin_clz(s.test_stage);
+                bool const isMask = ((s.test_stage + 1) == (0x80000000 >> (lz - 1)));
+                if (isMask
+                    && ((lz & 3) == OTA_TEST_STAGE_LZ_MOD4_TESTING)
+                    && ((s.ota_seq % n) == (running->subtype & PART_SUBTYPE_OTA_MASK))) {
                     // test succeeded!
                     ESP_LOGI( TAG, "successful test confirmation - set test_stage \"passed\" and progress \"ready\"" );
-                    s.test_stage = OTA_TEST_STAGE_PASSED;
+                    s.test_stage >>= 2;  // in difference to testing -> failed (>>=1) we shift by 2: testing -> passed
                     spi_flash_write( otadata->address + ((int) i * SPI_FLASH_SEC_SIZE) + offsetof(esp_ota_select_entry_t,test_stage),
                                      &s.test_stage, sizeof(s.test_stage) );
                     mProgress = 100;

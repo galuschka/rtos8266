@@ -5,14 +5,15 @@
  *      Author: galuschka
  */
 
-//define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 
 #include "WebServer.h"
+#include "Wifi.h"
+#include "Mqtinator.h"
+#include "Updator.h"
 
 #include <string.h>     // memmove()
-
-#include "Wifi.h"
-#include "Updator.h"
+#include <string>       // std::string
 
 #include "esp_log.h"   			// ESP_LOGI()
 #include "esp_event_base.h"   	// esp_event_base_t
@@ -37,6 +38,7 @@ namespace
 {
 const char * const TAG          = "WebServer";
 const char * const s_subWifi    = "WLAN parameter";
+const char * const s_subMqtt    = "MQTT parameter";
 const char * const s_subUpdate  = "Firmware update";
 const char * const s_subReboot  = "Restart device";
 WebServer          s_WebServer{};
@@ -225,6 +227,40 @@ bool Parser::Parse( const char * str, const char * end )
     return true;  // silently skip unknown fields
 }
 
+template<size_t N> class Row
+{
+    std::string cell[N] {};
+public:
+    Row() {};
+    std::string & operator[](size_t i) { return cell[i<N?i:N-1]; };
+
+    std::string & get( std::string & s ) {
+        for (size_t i = 0; i < N; ++i) {
+            s += "<td>";
+            s += cell[i];
+            s += "</td>";
+        }
+        return s;
+    };
+};
+
+template<size_t R, size_t C> class Table
+{
+    Row<C> row[R] {};
+public:
+    Table() {};
+    Row<C>& operator[](size_t i) { return row[i<R?i:R-1]; };
+
+    std::string & get( std::string & s ) {
+        for (size_t i = 0; i < R; ++i) {
+            s += "    <tr>";
+            row[i].get( s );
+            s += "</tr>\n";
+        }
+        return s;
+    };
+};
+
 void Parser::ClearUnparsed()
 {
     for (uint8_t i = 0; i < mNofFields; ++i)
@@ -233,7 +269,6 @@ void Parser::ClearUnparsed()
             mInArray[i].buf[0] = 0;
         }
 }
-
 
 
 extern "C" esp_err_t handler_get_wifi( httpd_req_t * req )
@@ -325,6 +360,131 @@ extern "C" esp_err_t handler_post_wifi( httpd_req_t * req )
     SendFinalChunk( req );
     return ESP_OK;
 }
+
+
+extern "C" esp_err_t handler_get_mqtt( httpd_req_t * req )
+{
+    Table<5,4> table;
+
+    table[0][0] = "Host:";
+    table[0][1] = "&nbsp;";
+    table[0][2] = "<input type=\"text\" name=\"host\" maxlength=15 value=\"";
+    table[0][3] = "(IPv4 address of MQTT broker)";
+
+    table[1][0] = "Port:";
+    table[1][2] = "<input type=\"text\" name=\"port\" maxlength=5 value=\"";
+    table[1][3] = "(listening port of MQTT broker)";
+
+    table[2][0] = "Publish topic:";
+    table[2][2] = "<input type=\"text\" name=\"pub\" maxlength=15 value=\"";
+    table[2][3] = "(top level topic for publish)";
+
+    table[3][0] = "Subscribe topic:";
+    table[3][2] = "<input type=\"text\" name=\"sub\" maxlength=15 value=\"";
+    table[3][3] = "(subscription topic)";
+
+    table[4][2] = "<button type=\"submit\">set</button>";
+
+    {
+        ip4_addr_t host = Mqtinator::Instance().GetHost();
+        if (host.addr) {
+            char buf[16];
+            ip4addr_ntoa_r( & host, buf, sizeof(buf) );
+            table[0][2] += buf;
+        }
+        table[0][2] += "\">";
+    }
+    {
+        uint16_t port = Mqtinator::Instance().GetPort();
+        if (port) {
+            char buf[8];
+            char * bp = & buf[sizeof(buf)-1];
+            *bp = 0;
+            do {
+                *--bp = (port % 10) + '0';
+                port /= 10;
+            } while (port && (bp > buf));
+            table[1][2] += bp;
+        }
+        table[1][2] += "\">";
+    }
+    table[2][2] += Mqtinator::Instance().GetPubTopic();
+    table[2][2] += "\">";
+
+    table[3][2] += Mqtinator::Instance().GetSubTopic();
+    table[3][2] += "\">";
+
+    SendInitialChunk( req, s_subMqtt );
+    SendConstChunk( req, "  <form method=\"post\">\n"
+                         "   <table border=0>\n" );
+    {
+        std::string s;
+        table.get( s );
+        SendStringChunk( req, s.c_str() );
+    }
+    SendConstChunk( req, "\n </table>\n "
+                        "</form>" );
+    SendFinalChunk( req );
+    return ESP_OK;
+}
+
+extern "C" esp_err_t handler_post_mqtt( httpd_req_t * req )
+{
+    SendInitialChunk( req, s_subMqtt );
+    if (!req->content_len) {
+        SendConstChunk( req, "no data - nothing to be done" );
+        SendFinalChunk( req );
+        return ESP_OK;
+    }
+
+    char hostBuf[16];
+    char portBuf[8];
+    char pub[16];
+    char sub[16];
+    Parser::Input in[] = { { "host", hostBuf, sizeof(hostBuf) },
+                           { "port", portBuf, sizeof(portBuf) },
+                           { "pub",  pub,     sizeof(pub)  },
+                           { "sub",  sub,     sizeof(sub)  } };
+    Parser parser{ in, sizeof(in) / sizeof(in[0]) };
+
+    if (! parser.ParsePostData( req )) {
+        SendConstChunk( req, "unexpected end of data while parsing data" );
+        SendFinalChunk( req );
+        return ESP_OK;
+    }
+
+    uint8_t changes = 0;
+    ip_addr_t host;
+    host.addr = ipaddr_addr( hostBuf );
+    char *end;
+    uint16_t port = (uint16_t) strtoul( portBuf, & end, 0 );
+    if (host.addr != Mqtinator::Instance().GetHost().addr)
+        changes |= 1 << 0;
+    if (port != Mqtinator::Instance().GetPort())
+        changes |= 1 << 1;
+    if (strcmp( pub, Mqtinator::Instance().GetPubTopic() ))
+        changes |= 1 << 2;
+    if (strcmp( sub, Mqtinator::Instance().GetSubTopic() ))
+        changes |= 1 << 3;
+
+    if (! changes) {
+        SendConstChunk( req, "data unchanged" );
+        SendFinalChunk( req );
+        return ESP_OK;
+    }
+
+	// ESP_LOGI( TAG, "received host \"%s\", ssid \"%s\", password \"%s\"", host, id, pw );
+	if (! Mqtinator::Instance().SetParam( host, port, pub, sub )) {
+		SendConstChunk( req, "setting MQTT parameter failed - try again" );
+        SendFinalChunk( req );
+		return ESP_OK;
+	}
+
+    SendConstChunk( req, "configuration has been set" );
+    SendFinalChunk( req );
+    return ESP_OK;
+}
+
 
 extern "C" esp_err_t handler_get_update( httpd_req_t * req )
 {
@@ -586,6 +746,14 @@ const httpd_uri_t uri_post_wifi =   { .uri = "/wifi",
                                       .method = HTTP_POST,
                                       .handler = handler_post_wifi,
                                       .user_ctx = 0 };
+const httpd_uri_t uri_get_mqtt =    { .uri = "/mqtt",
+                                      .method = HTTP_GET,
+                                      .handler = handler_get_mqtt,
+                                      .user_ctx = 0 };
+const httpd_uri_t uri_post_mqtt =   { .uri = "/mqtt",
+                                      .method = HTTP_POST,
+                                      .handler = handler_post_mqtt,
+                                      .user_ctx = 0 };
 const httpd_uri_t uri_get_update =  { .uri = "/update",
                                       .method = HTTP_GET,
                                       .handler = handler_get_update,
@@ -604,6 +772,7 @@ const httpd_uri_t uri_post_reboot = { .uri = "/reboot",
                                       .user_ctx = 0 };
 
 const WebServer::Page page_wifi    { uri_get_wifi,   s_subWifi };
+const WebServer::Page page_mqtt    { uri_get_mqtt,   s_subMqtt };
 const WebServer::Page page_update  { uri_get_update, s_subUpdate };
 const WebServer::Page page_reboot  { uri_get_reboot, s_subReboot };
 
@@ -613,7 +782,7 @@ extern "C" httpd_handle_t start_webserver( void )
 {
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 12;
+    config.max_uri_handlers = 16;
 
     // Start the httpd server
     ESP_LOGI( TAG, "Starting web server on port: '%d'", config.server_port );
@@ -705,17 +874,17 @@ void WebServer::Init()
 {
     ESP_LOGI( TAG, "Start web server" );
     mServer = start_webserver();
+    if (! mServer)
+        return;
 
-    ESP_LOGI( TAG, "Registering URI handlers" );
+    ESP_LOGI( TAG, "Registering URI handlers" ); EXPRD( vTaskDelay(1) )
     httpd_register_uri_handler( mServer, &uri_main );
     httpd_register_uri_handler( mServer, &uri_favicon );
     httpd_register_uri_handler( mServer, &uri_readflash );
 
-    ESP_LOGD( TAG, "AddPage wifi" );
-    AddPage( page_wifi, &uri_post_wifi );
-
-    ESP_LOGD( TAG, "AddPage update" );
+    ESP_LOGD( TAG, "Add sub pages" ); EXPRD( vTaskDelay(1) )
+    AddPage( page_wifi,   &uri_post_wifi );
+    AddPage( page_mqtt,   &uri_post_mqtt );
     AddPage( page_update, &uri_post_update );
-
     AddPage( page_reboot, &uri_post_reboot );
 }
