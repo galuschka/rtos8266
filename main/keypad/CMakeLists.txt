@@ -1,4 +1,4 @@
-IF(0)
+IF(1)
 
 idf_component_register( SRCS keypad_main.cpp Keypad.cpp
                 INCLUDE_DIRS ""

@@ -1,4 +1,4 @@
-IF(1)
+IF(0)
 
 idf_component_register( SRCS rtos8266_main.cpp
                 INCLUDE_DIRS ""
