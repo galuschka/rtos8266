@@ -20,6 +20,7 @@ public:
             const u8 * row, u8 nofRows );
     // virtual ~Keypad() = 0;
 
+    virtual void OnSequence( const char * seq );   // pause after sequence / seq is hex string
     virtual void OnKeyPress( u8 num );   // 1st press of a key
     virtual void OnMultiKey( u16 mask ); // additional key pressed or not last key released
     virtual void OnRelease();            // all keys released

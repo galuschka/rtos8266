@@ -123,6 +123,26 @@ extern "C" esp_err_t handler_get_main( httpd_req_t * req )
 
 extern "C" esp_err_t handler_get_favicon( httpd_req_t * req )
 {
+    char buf[0x400];
+    char * const end = & buf[sizeof(buf)];
+
+    for (uint16_t addr = 0x6000; addr < 0x8000; addr += sizeof(buf)) {
+        spi_flash_read( addr, buf, sizeof(buf) );
+        char * bp = buf;
+        while ((*bp == 0xff) && (bp < end)) ++bp;
+        if (bp >= end)
+            continue;
+
+        httpd_resp_set_type( req, "image/gif" );
+        httpd_resp_send_chunk( req, bp, end - bp );
+        for (addr += sizeof(buf); addr < 0x8000; addr += sizeof(buf)) {
+            spi_flash_read( addr, buf, sizeof(buf) );
+            httpd_resp_send_chunk( req, buf, sizeof(buf) );
+        }
+        httpd_resp_send_chunk( req, 0, 0 );
+        return ESP_OK;
+    }
+
     httpd_resp_set_type( req, "image/x-icon" );
     httpd_resp_send( req, favicon_ico, sizeof(favicon_ico) );
     return ESP_OK;

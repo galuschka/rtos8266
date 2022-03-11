@@ -67,7 +67,12 @@ void Keypad::RowsOutColsIn()
     gpio_config( &mOutConf ); // and rows are output
 }
 
-u8 s_lastNum = 16;
+void Keypad::OnSequence( const char * seq )   // pause after sequence / seq is hex string
+{
+    ESP_LOGI( TAG, "seq %s", seq );
+
+    Mqtinator::Instance().Pub( "sequence", seq );
+}
 
 void Keypad::OnKeyPress( u8 num )
 {
@@ -113,62 +118,108 @@ void Keypad::OnRelease()
 
 void Keypad::Run()
 {
-    /// Indicator::Instance().Access( 0 );  // indicate ready
+    uint8_t const longDelay  = configTICK_RATE_HZ / 10;
+    uint8_t const shortDelay = configTICK_RATE_HZ / 50;
+    uint8_t delay = longDelay;
+    TickType_t lastRelease = 0;
+
+    char seq[16];
+    char * const seqend = & seq[sizeof(seq) - 1];
+    char * sp = &seq[-1];
 
     while (true) {
-        vTaskDelay( configTICK_RATE_HZ / 50 ); // / 100
+        vTaskDelay( delay );
 
         u16 numMask = 0;
         u8 num = 0;  // any (not checked when numMask == 0)
 
-        u16 colMatch;
-        u16 inPrev;
-        u16 in;
-
         GPIO.enable_w1ts = mAllRows;
-        for (u8 r = 0; (r < mNofRows) /*&& (r < 1)*/; ++r) {
-            // GPIO.enable_w1ts = 1 << mRow[r];
-            GPIO.out_w1tc = 1 << mRow[r];   // low active
-            ets_delay_us(500);
+        {
+            u16 colMatch;
+            u16 inPrev;
+            u16 in;
+
+            GPIO.out_w1tc = mAllRows;   // low active
+            ets_delay_us(300);
             in = GPIO.in & 0xffff;
-            do {
-                ets_delay_us(100);
-                inPrev = in;
-                in = GPIO.in & 0xffff;
-            } while (in != inPrev);
-            GPIO.out_w1ts = 1 << mRow[r];   // high inactive
-            // GPIO.enable_w1tc = 1 << mRow[r];
+            ets_delay_us(100);
+            in &= (GPIO.in & 0xffff);  // just need to know: is any pin pulled down
             colMatch = ~in & mAllCols;
 
-            if (! colMatch)
-                continue;
+            if (colMatch) {  // at least one key pressed
+                GPIO.out_w1ts = mAllRows & ~(1 << mRow[0]);   // high inactive
+                for (u8 r = 0; (r < mNofRows) /*&& (r < 1)*/; ++r) {
+                    GPIO.out_w1tc = 1 << mRow[r];   // low active
+                    ets_delay_us(300);
+                    in = GPIO.in & 0xffff;
+                    do {
+                        ets_delay_us(100);
+                        inPrev = in;
+                        in = GPIO.in & 0xffff;
+                    } while ((in ^ inPrev) & mAllCols);
+                    GPIO.out_w1ts = 1 << mRow[r];   // high inactive
 
-            ESP_LOGD( TAG, "out 0%06o: ~0%06o & 0%02o == 0%02o", 1 << mRow[r], in, mAllCols, colMatch );
+                    colMatch = ~in & mAllCols;
 
-            for (u8 c = 0; (c < mNofCols) && colMatch; ++c)
-                if (colMatch & (1 << mCol[c])) {
-                    num = s_num[r][c];
-                    numMask |= 1 << num;
+                    if (! colMatch)
+                        continue;
+
+                    ESP_LOGD( TAG, "out 0%06o: ~0%06o & 0%02o == 0%02o", 1 << mRow[r], in, mAllCols, colMatch );
+
+                    for (u8 c = 0; (c < mNofCols) && colMatch; ++c)
+                        if (colMatch & (1 << mCol[c])) {
+                            num = s_num[r][c];
+                            numMask |= 1 << num;
+                        } // for c
+                } // for r
+                if (! numMask) {
+                    ESP_LOGW( TAG, "fast detection said 'at least one key pressed' - fix fast detection" );
                 }
+            } // if colMatch
+            else
+                GPIO.out_w1ts = mAllRows;   // all inactive
         }
         GPIO.enable_w1tc = mAllRows;
 
-        if (numMask == mNumMask)
+        if (numMask == mNumMask) {
+            if (lastRelease) {
+                TickType_t now = xTaskGetTickCount();
+                TickType_t diff = now - lastRelease;
+                if (diff >= (configTICK_RATE_HZ / 1)) {
+                    // one second pause: send sequence
+                    if ((sp > seq) && (sp < seqend)) {
+                        *++sp = 0;
+                        OnSequence( seq );
+                    }
+                    lastRelease = 0;
+                    sp = &seq[-1];
+                    delay = longDelay;
+                }
+            }
             continue;
+        }
 
         if (! numMask) {
+            lastRelease = xTaskGetTickCount();
+            if (! lastRelease)
+                lastRelease = 1;
             Indicator::Instance().Steady( 0 );
             OnRelease();
         } else {
+            lastRelease = 0;
             if (! mNumMask) {
                 Indicator::Instance().Steady( 1 );
-                if (numMask == (1 << num))
+                if (numMask == (1 << num)) {
+                    if (sp < seqend) {
+                        *++sp = num + '0' + ((num / 10) * ('A' - '0' - 10));
+                    }
                     OnKeyPress( num );
-                else
+                } else
                     OnMultiKey( numMask );
             } else {
                 OnMultiKey( numMask );
             }
+            delay = shortDelay;
         }
 
         mNumMask = numMask;
