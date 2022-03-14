@@ -1,6 +1,8 @@
 idf_component_register(SRCS Indicator.cpp
                             Wifi.cpp
                             WebServer.cpp
+                            HttpHelper.cpp
+                            HttpParser.cpp
                             Updator.cpp
                             Mqtinator.cpp
                INCLUDE_DIRS ""
