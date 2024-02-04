@@ -1,27 +1,26 @@
 /*
- * Pinpad.h
+ * Keypad.h
  *
  *  Created on: 07.01.2022
- *      Author: galuschka
+ *      Author: holger
  */
 
-#ifndef MAIN_PINPAD_H_
-#define MAIN_PINPAD_H_
+#ifndef MAIN_KEYPAD_H_
+#define MAIN_KEYPAD_H_
 
 #include "gpio.h"   // gpio_config_t
 
 typedef unsigned char  u8;
 typedef unsigned short u16;
 
-class Indicator;
-
-class Pinpad
+class Keypad
 {
 public:
-    Pinpad( const u8 * col, u8 nofCols,
+    Keypad( const u8 * col, u8 nofCols,
             const u8 * row, u8 nofRows );
-    // virtual ~Pinpad() = 0;
+    // virtual ~Keypad() = 0;
 
+    virtual void OnSequence( const char * seq );   // pause after sequence / seq is hex string
     virtual void OnKeyPress( u8 num );   // 1st press of a key
     virtual void OnMultiKey( u16 mask ); // additional key pressed or not last key released
     virtual void OnRelease();            // all keys released
@@ -43,4 +42,4 @@ private:
     gpio_config_t mOutConf;
 };
 
-#endif /* MAIN_PINPAD_H_ */
+#endif /* MAIN_KEYPAD_H_ */

@@ -24,12 +24,12 @@ static const unsigned char s_col[] = {  5, 4, 0 };
 
 //define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 
-#include "Wifi.h"
-#include "WebServer.h"
-
 #include "Indicator.h"
+#include "Wifi.h"
 #include "Updator.h"
-#include "Pinpad.h"
+#include "Mqtinator.h"
+#include "WebServer.h"
+#include "Keypad.h"
 
 #include "esp_event.h"  // esp_event_loop_create_default()
 #include "esp_netif.h"  // esp_netif_init()
@@ -43,6 +43,12 @@ static const unsigned char s_col[] = {  5, 4, 0 };
 #endif
 
 static const char *TAG = "main";
+
+extern "C" void OnFlash( const char * topic, const char * data )
+{
+    ESP_LOGD( TAG, "got \"%s\" \"%s\"", topic, data );
+    Indicator::Instance().Access( *data & 1 );
+}
 
 void main_nvs_init()
 {
@@ -66,36 +72,34 @@ void main_nvs_init()
 
 extern "C" void app_main()
 {
-    // ESP_LOGD( TAG, "enter" ); sys_delay_ms(5000);
-
-    // LED on GPIO2:
+    ESP_LOGD( TAG, "Indicator..." ); EXPRD(vTaskDelay(1))
+    // red LED on GPIO2, green LED on GPIO16
     Indicator::Instance().Init( GPIO_NUM_2, GPIO_NUM_16 ); // red/green
 
-    // ESP_LOGD( TAG, "main_nvs_init()" ); EXPRD(vTaskDelay(1))
-
+    ESP_LOGD( TAG, "nvs_flash_init..." ); EXPRD(vTaskDelay(1))
     main_nvs_init();  // initialize non-volatile file system
 
-    // ESP_LOGD( TAG, "Wifi()" ); EXPRD(vTaskDelay(1))
+    ESP_LOGD( TAG, "Wifi()" ); EXPRD(vTaskDelay(1))
+    Wifi::Instance().Init( 60 );
 
-    Wifi wifi;
-
-    // ESP_LOGD( TAG, "wifi.Init()" ); EXPRD(vTaskDelay(1))
-    wifi.Init( 60 );
     // Wifi::Init blocks until success (or access point mode)
     // now we can initialize web server:
 
-    ESP_LOGD( TAG, "Updator::Instance().Init()" ); EXPRD(vTaskDelay(1))
-    Updator::Instance().Init( "http://10.9.8.3:8087/keypad.bin" );
+    ESP_LOGD( TAG, "Updator..." ); EXPRD(vTaskDelay(1))
+    Updator::Instance().Init();
 
-    ESP_LOGD( TAG, "WebServer()" ); EXPRD(vTaskDelay(1))
-    WebServer webServer{ wifi };
+    ESP_LOGD( TAG, "Mqtinator..." ); EXPRD(vTaskDelay(1))
+    Mqtinator & mqtinator = Mqtinator::Instance();
+    mqtinator.Init();
+    mqtinator.Sub( "flash", & OnFlash );
 
-    ESP_LOGD( TAG, "webServer.Init()" ); EXPRD(vTaskDelay(1))
-    webServer.Init();
 
-    ESP_LOGD( TAG, "Pinpad()" ); EXPRD(vTaskDelay(1))
-    Pinpad pinpad{ s_col, NELEMENTS(s_col), s_row, NELEMENTS(s_row) };
+    ESP_LOGD( TAG, "WebServer..." ); EXPRD(vTaskDelay(1))
+    WebServer::Instance().Init();
 
-    ESP_LOGD( TAG, "pinpad.Run()" ); EXPRD(vTaskDelay(1))
-    pinpad.Run();
+    ESP_LOGD( TAG, "Keypad..." ); EXPRD(vTaskDelay(1))
+    Keypad keypad{ s_col, NELEMENTS(s_col), s_row, NELEMENTS(s_row) };
+
+    ESP_LOGD( TAG, "keypad.Run()" ); EXPRD(vTaskDelay(1))
+    keypad.Run();
 }

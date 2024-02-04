@@ -35,32 +35,19 @@ private:
         MODE_STATION,
     };
 public:
-    Wifi();
+    Wifi() {};
+    static Wifi & Instance();
 
     void Init( int connTimoInSecs );
 
-    u32_t GetIpAddr()
-    {
-        return mIpAddr.addr;
-    }
-    const char* GetSsid()
-    {
-        return mSsid;
-    }
-    const char* GetPassword()
-    {
-        return mPassword;
-    }
-    bool StationMode()
-    {
-        return mMode == MODE_STATION;
-    }
-    bool AccessPoint()
-    {
-        return mMode == MODE_ACCESSPOINT;
-    }
+    u32_t GetIpAddr() { return mIpAddr.addr; }
+    const char* GetHost() { return mHost; }
+    const char* GetSsid() { return mSsid; }
+    const char* GetPassword() { return mPassword; }
+    bool StationMode() { return mMode == MODE_STATION; }
+    bool AccessPoint() { return mMode == MODE_ACCESSPOINT; }
 
-    bool SetParam( const char * ssid, const char * password );
+    bool SetParam( const char * host, const char * ssid, const char * password );
 
     void Event( esp_event_base_t event_base, int32_t event_id,
             void * event_data );
@@ -73,12 +60,13 @@ private:
     bool ModeSta( int connTimoInSecs );
 
 private:
-    EventGroupHandle_t mConnectEventGroup;
-    ip4_addr_t mIpAddr { 0 };
-    char mSsid[32];
-    char mPassword[32];
-    char mMode;
-    bool mReconnect;
+    EventGroupHandle_t mConnectEventGroup { 0 };
+    ip4_addr_t mIpAddr  { 0 };
+    char mHost[16]      { "" };
+    char mSsid[16]      { "" };
+    char mPassword[32]  { "" };
+    char mMode          { MODE_IDLE };
+    bool mReconnect     { false };
 };
 
 #endif /* MAIN_WIFI_H_ */

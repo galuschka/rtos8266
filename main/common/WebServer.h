@@ -35,21 +35,18 @@ private:
         {
         }
     };
-    // WebServer();
 public:
-    WebServer( Wifi & wifi );
+    WebServer() {};
+    static WebServer& Instance();
+
     void Init();
-
-    Wifi & wifi() { return mWifi; };
-
     void AddPage( const Page & page, const httpd_uri_t * postUri = 0 );
     void MainPage( httpd_req_t * req );
 
 private:
-    Wifi &mWifi;
-    httpd_handle_t server { 0 };
-    PageList *Anchor{ 0 };
-    PageList *LastElem{ 0 };
+    httpd_handle_t mServer  { 0 };
+    PageList      *mAnchor  { 0 };
+    PageList      *mLastElem{ 0 };
 };
 
 #endif /* MAIN_WEBSERVER_H_ */
