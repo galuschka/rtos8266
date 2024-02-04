@@ -1,9 +1,11 @@
-/* Tempizz.cpp - temperature reading implementation
+/* Temperator.cpp - temperature reading implementation
 */
 
 //define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 
-#include "Tempizz.h"
+#include "Temperator.h"
+
+#include "Mqtinator.h"
 #include "WebServer.h"
 #include "HttpHelper.h"
 #include "HttpParser.h"
@@ -23,76 +25,90 @@
 #endif
 
 namespace {
-const char *const s_subpage         = "/config";
+const char *const s_subpage         = "/temperature";
 const char *const s_nvsNamespace    = "temperature";
 const char *const s_keyDevMask      = "mask";   // u16 value as a bit mask to found devices
 const char        s_keyAddrPrefix[] = "addr_";  // device index (0..(N-1)) is appended to keys
 const char        s_keyNamePrefix[] = "name_";  // device index (0..(N-1)) is appended to keys
+const char        s_keyIdxPrefix[]  = "idx_";   // device index (0..(N-1)) is appended to keys
                                                 // number of stored devices: first non-existant addr/name pair
-const char *      s_keyInterval[Tempizz::INTERVAL::COUNT];
-const char      * TAG = "Tempizz";
-Tempizz         * s_tempizz = 0;
+const char *      s_keyInterval[Temperator::INTERVAL::COUNT];
+const char      * TAG = "Temperator";
+Temperator      * s_temperator = 0;
 }
 
-
-extern "C" esp_err_t get_tempizz_config( httpd_req_t * req )
+extern "C" esp_err_t get_temperator_config( httpd_req_t * req )
 {
-    if (s_tempizz)
-        s_tempizz->Setup( req );
+    if (s_temperator)
+        s_temperator->Setup( req );
     return ESP_OK;
 }
 
-extern "C" esp_err_t post_tempizz_config( httpd_req_t * req )
+extern "C" esp_err_t post_temperator_config( httpd_req_t * req )
 {
-    if (s_tempizz)
-        s_tempizz->Setup( req, true );
+    if (s_temperator)
+        s_temperator->Setup( req, true );
     return ESP_OK;
 }
 
 namespace {
-const httpd_uri_t s_get_uri   = { .uri = s_subpage, .method = HTTP_GET,  .handler = get_tempizz_config,  .user_ctx = 0 };
-const httpd_uri_t s_post_uri  = { .uri = s_subpage, .method = HTTP_POST, .handler = post_tempizz_config, .user_ctx = 0 };
-const WebServer::Page s_page    { s_get_uri, "Configure tempizz settings" };
+const httpd_uri_t s_get_uri   = { .uri = s_subpage, .method = HTTP_GET,  .handler = get_temperator_config,  .user_ctx = 0 };
+const httpd_uri_t s_post_uri  = { .uri = s_subpage, .method = HTTP_POST, .handler = post_temperator_config, .user_ctx = 0 };
+const WebServer::Page s_page    { s_get_uri, "Configure temperator settings" };
 }
 
-Tempizz::Tempizz( gpio_num_t pin ) : mPin{ pin }
+Temperator::Temperator( gpio_num_t pin ) : mPin{ pin }
 {
-    s_tempizz = this;
+    s_temperator = this;
     WebServer::Instance().AddPage( s_page, & s_post_uri );
     s_keyInterval[INTERVAL::FAST] = "fast";
     s_keyInterval[INTERVAL::SLOW] = "slow";
     s_keyInterval[INTERVAL::ERROR] = "error";
 }
 
-void Tempizz::Rescan()
+void Temperator::OnTempRead( callback_t callback, void * userarg )
+{
+    mUserArg = userarg;
+    mCallback = callback;
+}
+
+void Temperator::Rescan()
 {
     mMode = MODE::SCAN;
     xSemaphoreGive( mSemaphore );
 }
 
-void Tempizz::Setup( httpd_req_t * req, bool post )
+void Temperator::Setup( httpd_req_t * req, bool post )
 {
-    HttpHelper hh{ req, "Configuration" };
+    HttpHelper hh{ req, "Temperator settings" };
 
     uint8_t const n = mDevInfo.size() < MaxDevStored ? mDevInfo.size() : MaxDevStored;
 
-    //ESP_LOGD( TAG, "have %d device infos -> n set to %d", mDevInfo.size(), n );
+    ESP_LOGD( TAG, "have %d device infos -> n set to %d", mDevInfo.size(), n );
 
     if (post) {
-        // ESP_LOGD( TAG, "got POST data" );
+        ESP_LOGD( TAG, "got POST data" );
         if (n) {
-            HttpParser::Input in[n + INTERVAL::COUNT];
-            char key[n][8];
-            char buf[n][32];
+            HttpParser::Input in[(2 * n) + INTERVAL::COUNT];
+            char namekey[n][8];
+            char namebuf[n][32];
             for (uint8_t i = 0; i < n; ++i) {
-                strcpy( key[i], "name_" );
-                key[i][5] = i + 'A';
-                key[i][6] = 0;
-                in[i] = HttpParser::Input{ key[i], buf[i], sizeof(buf[i]) };
+                strcpy( namekey[i], "name_" );
+                namekey[i][5] = i + 'A';
+                namekey[i][6] = 0;
+                in[i] = HttpParser::Input{ namekey[i], namebuf[i], sizeof(namebuf[i]) };
+            }
+            char idxkey[n][8];
+            char idxbuf[n][8];
+            for (uint8_t i = 0; i < n; ++i) {
+                strcpy( idxkey[i], "idx_" );
+                idxkey[i][4] = i + 'A';
+                idxkey[i][5] = 0;
+                in[n+i] = HttpParser::Input{ idxkey[i], idxbuf[i], sizeof(idxbuf[i]) };
             }
             char bufInterval[INTERVAL::COUNT][8];
             for (uint8_t i = 0; i < INTERVAL::COUNT; ++i)
-                in[n+i] = HttpParser::Input{ s_keyInterval[i], bufInterval[i], sizeof(bufInterval[i]) };
+                in[(2*n)+i] = HttpParser::Input{ s_keyInterval[i], bufInterval[i], sizeof(bufInterval[i]) };
 
             HttpParser parser{ in, (uint8_t) (sizeof(in)/sizeof(in[0])) };
 
@@ -100,16 +116,28 @@ void Tempizz::Setup( httpd_req_t * req, bool post )
                 hh.Add( "unexpected end of data while parsing post data" );
                 return;
             }
-            for (uint8_t i = 0; i < n; ++i)
+            for (uint8_t i = 0; i < n; ++i) {
+                bool mod = false;
                 if (in[i].len) {
-                    std::string name{ buf[i] };
+                    std::string name{ namebuf[i] };
                     if (mDevInfo[i].name != name) {
                         mDevInfo[i].name = name;
-                        WriteDevInfo( i );
+                        mod = true;
                     }
                 }
-            for (uint8_t i = 0; i < INTERVAL::COUNT; ++i)
                 if (in[n+i].len) {
+                    uint16_t idx = (uint16_t) strtoul( idxbuf[i], 0, 0 );
+                    if (mDevInfo[i].idx != idx) {
+                        mDevInfo[i].idx = idx;
+                        mod = true;
+                    }
+                }
+                if (mod) {
+                    WriteDevInfo( i );
+                }
+            }
+            for (uint8_t i = 0; i < INTERVAL::COUNT; ++i)
+                if (in[(2*n)+i].len) {
                     unsigned long interval = strtoul( bufInterval[i], 0, 0 );
                     if (interval) {
                         interval *= configTICK_RATE_HZ;
@@ -139,7 +167,7 @@ void Tempizz::Setup( httpd_req_t * req, bool post )
         hh.Add( " <form method=\"post\">\n"
                 "  <table>\n" );
         {
-            Table<1, 7> table;
+            Table<1, 8> table;
             table.Center( 0 );
             table.Center( 4 );
             table.Right( 5 );
@@ -147,10 +175,11 @@ void Tempizz::Setup( httpd_req_t * req, bool post )
             table[0][0] = "Device";
             table[0][1] = "&nbsp;";
             table[0][2] = "OneWire ROM address";
-            table[0][3] = "Device name";
-            table[0][4] = "Used?";
-            table[0][5] = "Temperature";
-            table[0][6] = "Age";
+            table[0][3] = "Name";
+            table[0][4] = "Idx";
+            table[0][5] = "Used?";
+            table[0][6] = "Temp.";
+            table[0][7] = "Age";
             table.AddTo( hh, /*headrows*/ 1 );
 
             table[0][1].clear();
@@ -162,29 +191,34 @@ void Tempizz::Setup( httpd_req_t * req, bool post )
                                                 " name=\"name_") + (char) (i + 'A') + "\""
                                                 " value=\"" + mDevInfo[i].name + "\""
                                                 " />";
+                table[0][4] = std::string("<input type=\"number\""
+                                                " maxlength=5"
+                                                " name=\"idx_") + (char) (i + 'A') + "\""
+                                                " value=\"" + std::to_string( mDevInfo[i].idx ) + "\""
+                                                " />";
                 if (mDevMask & (1 << i))
-                    table[0][4] = "&#x2713;";  // ☑ 9745 x2611  ✓ x2713
+                    table[0][5] = "&#x2713;";  // ☑ 9745 x2611  ✓ x2713
                 else
-                    table[0][4] = "&mdash;";  // ☐ 9744 x2610
+                    table[0][5] = "&mdash;";  // ☐ 9744 x2610
 
                 if (isnanf( mDevInfo[i].value )) {
-                    table[0][5] = "-";
                     table[0][6] = "-";
+                    table[0][7] = "-";
                 } else {
-                    table[0][5] = HttpHelper::String( mDevInfo[i].value ) + "°C";
+                    table[0][6] = HttpHelper::String( mDevInfo[i].value, 1 ) + "°C";
                     long x = (xTaskGetTickCount() - mDevInfo[i].time + configTICK_RATE_HZ/2) / configTICK_RATE_HZ;
                     if (x < 60)
-                        table[0][6] = HttpHelper::String( x ) + " s";
+                        table[0][7] = HttpHelper::String( x ) + " s";
                     else {
                         long y = x % 60;
                         x /= 60;
                         if (x < 60)
-                            table[0][6] = HttpHelper::String( x ) + ":" + HttpHelper::String( y, 2 ) + " m:ss";
+                            table[0][7] = HttpHelper::String( x ) + ":" + HttpHelper::String( y, 2 ) + " m:ss";
                         else {
                             x += (y + 30) / 60;
                             y = x % 60;
                             x /= 60;
-                            table[0][6] = HttpHelper::String( x ) + ":" + HttpHelper::String( y, 2 ) + " h:mm";
+                            table[0][7] = HttpHelper::String( x ) + ":" + HttpHelper::String( y, 2 ) + " h:mm";
                         }
                     }
                 }
@@ -201,11 +235,13 @@ void Tempizz::Setup( httpd_req_t * req, bool post )
             table[0][4] = "Unit";
             table[0][5].clear();
             table[0][6].clear();
+            table[0][7].clear();
             table.AddTo( hh, /*headrows*/ 1 );
 
             table[0][4] = "s";
             table[0][5].clear();
             table[0][6].clear();
+            table[0][7].clear();
 
             for (uint8_t i = 0; i < INTERVAL::COUNT; ++i) {
                 switch (i) {
@@ -255,35 +291,50 @@ void Tempizz::Setup( httpd_req_t * req, bool post )
             " </form>\n" );
 }
 
-void Tempizz::ReadConfig()
+void Temperator::ReadConfig()
 {
     nvs_handle my_handle;
     if (nvs_open( s_nvsNamespace, NVS_READONLY, &my_handle ) != ESP_OK)
         return;
 
-    ESP_LOGD( TAG, "Reading addr/name pairs" );
-    char     keyAddr[sizeof(s_keyAddrPrefix) + 1];
-    char     keyName[sizeof(s_keyNamePrefix) + 1];
+    ESP_LOGD( TAG, "Reading addr/name/idx tuples" );
+    char keyAddr[sizeof(s_keyAddrPrefix) + 1];
+    char keyName[sizeof(s_keyNamePrefix) + 1];
+    char keyIdx[ sizeof(s_keyIdxPrefix)  + 1];
     memcpy( keyAddr, s_keyAddrPrefix, sizeof(s_keyAddrPrefix) );
     memcpy( keyName, s_keyNamePrefix, sizeof(s_keyNamePrefix) );
+    memcpy( keyIdx,  s_keyIdxPrefix,  sizeof(s_keyIdxPrefix) );
     keyAddr[sizeof(s_keyAddrPrefix)] = 0;
     keyName[sizeof(s_keyNamePrefix)] = 0;
+    keyIdx[ sizeof(s_keyIdxPrefix) ] = 0;
 
     mDevInfo.clear();
     uint8_t n = 0;
     do {
         keyAddr[sizeof(s_keyAddrPrefix) - 1] = n + 'A';
         keyName[sizeof(s_keyNamePrefix) - 1] = n + 'A';
-        uint64_t addr;
-        // ESP_LOGD( TAG, "nvs_get_u64( ... \"%s\" ...)", keyAddr );
-        if (nvs_get_u64( my_handle, keyAddr, &addr ) != ESP_OK)
+        keyIdx[ sizeof(s_keyIdxPrefix)  - 1] = n + 'A';
+
+        uint64_t addr = 0;
+        esp_err_t err = nvs_get_u64( my_handle, keyAddr, &addr );
+        if (err != ESP_OK) {
+            ESP_LOGD( TAG, "nvs_get_u64( \"%s\" ) -> %#x ==> break loop", keyAddr, err );
             break;
+        }
+        ESP_LOGD( TAG, "nvs_get_u64( \"%s\" ) -> %#x, %s", keyAddr, err, HttpHelper::HexString( addr ).c_str() );
+
         char   name[32];
         size_t len = sizeof(name);
-        // ESP_LOGD( TAG, "nvs_get_str( ... \"%s\" ...)", keyName );
-        if (nvs_get_str( my_handle, keyName, name, & len ) != ESP_OK)
+        uint16_t idx = 0;
+        err = nvs_get_str( my_handle, keyName, name, & len );
+        if (err != ESP_OK)
             name[0] = 0; // empty in case name not set
-        mDevInfo.push_back( DevInfo( addr, name ) );
+        ESP_LOGD( TAG, "nvs_get_str( \"%s\" ) -> %#x, \"%s\"", keyName, err, name );
+        err = nvs_get_u16( my_handle, keyIdx, & idx );
+        ESP_LOGD( TAG, "nvs_get_u16( \"%s\" ) -> %#x, %d", keyIdx, err, idx );
+        if (err != ESP_OK)
+            idx = 0; // empty in case name not set
+        mDevInfo.push_back( DevInfo( addr, name, idx ) );
         ++n;
     } while (n < MaxDevStored);
 
@@ -299,7 +350,7 @@ void Tempizz::ReadConfig()
     nvs_close( my_handle );
 }
 
-void Tempizz::WriteDevInfo( uint8_t idx )
+void Temperator::WriteDevInfo( uint8_t idx )
 {
     nvs_handle my_handle;
     if (nvs_open( s_nvsNamespace, NVS_READWRITE, &my_handle ) != ESP_OK)
@@ -307,24 +358,39 @@ void Tempizz::WriteDevInfo( uint8_t idx )
 
     char keyAddr[sizeof(s_keyAddrPrefix) + 1];
     char keyName[sizeof(s_keyNamePrefix) + 1];
+    char keyIdx[ sizeof(s_keyIdxPrefix)  + 1];
     memcpy( keyAddr, s_keyAddrPrefix, sizeof(s_keyAddrPrefix) );
     memcpy( keyName, s_keyNamePrefix, sizeof(s_keyNamePrefix) );
+    memcpy( keyIdx,  s_keyIdxPrefix,  sizeof(s_keyIdxPrefix) );
     keyAddr[sizeof(s_keyAddrPrefix) - 1] = idx + 'A';
     keyName[sizeof(s_keyNamePrefix) - 1] = idx + 'A';
+    keyIdx[ sizeof(s_keyIdxPrefix)  - 1] = idx + 'A';
     keyAddr[sizeof(s_keyAddrPrefix)] = 0;
     keyName[sizeof(s_keyNamePrefix)] = 0;
+    keyIdx[ sizeof(s_keyIdxPrefix) ] = 0;
 
-    nvs_set_u64( my_handle, keyAddr, mDevInfo.at(idx).addr );
-    if (mDevInfo[idx].name.length())
+    ESP_LOGD( TAG, "nvs_set_u64( \"%s\", %s )", keyAddr, HttpHelper::HexString( mDevInfo[idx].addr ).c_str() );
+    nvs_set_u64( my_handle, keyAddr, mDevInfo[idx].addr );
+
+    if (mDevInfo[idx].name.length()) {
+        ESP_LOGD( TAG, "nvs_set_str( \"%s\", \"%s\" )", keyName, mDevInfo[idx].name.c_str() );
         nvs_set_str( my_handle, keyName, mDevInfo[idx].name.c_str() );
-    else
+    } else {
+        ESP_LOGD( TAG, "nvs_erase_key( \"%s\" )", keyName );
         nvs_erase_key( my_handle, keyName );
-
+    }
+    if (mDevInfo[idx].idx) {
+        ESP_LOGD( TAG, "nvs_set_u16( \"%s\", %d )", keyIdx, mDevInfo[idx].idx );
+        nvs_set_u16( my_handle, keyIdx, mDevInfo[idx].idx );
+    } else {
+        ESP_LOGD( TAG, "nvs_erase_key( \"%s\" )", keyIdx );
+        nvs_erase_key( my_handle, keyIdx );
+    }
     nvs_commit( my_handle );
     nvs_close( my_handle );
 }
 
-void Tempizz::WriteDevMask()
+void Temperator::WriteDevMask()
 {
     nvs_handle my_handle;
     if (nvs_open( s_nvsNamespace, NVS_READWRITE, &my_handle ) != ESP_OK)
@@ -335,7 +401,7 @@ void Tempizz::WriteDevMask()
     nvs_close( my_handle );
 }
 
-void Tempizz::WriteInterval( uint8_t idx )
+void Temperator::WriteInterval( uint8_t idx )
 {
     nvs_handle my_handle;
     if (nvs_open( s_nvsNamespace, NVS_READWRITE, &my_handle ) != ESP_OK)
@@ -346,7 +412,21 @@ void Tempizz::WriteInterval( uint8_t idx )
     nvs_close( my_handle );
 }
 
-void Tempizz::Run()
+extern "C" void TemperatorTask( void * temperator )
+{
+    ((Temperator *) temperator)->Run();
+}
+bool Temperator::Start()
+{
+    xTaskCreate( TemperatorTask, "Temperator", /*stack size*/2048, this,
+                 /*prio*/ 1, &mTaskHandle );
+    if (!mTaskHandle) {
+        ESP_LOGE( TAG, "xTaskCreate failed" );
+        return false;
+    }
+    return true;
+}
+void Temperator::Run()
 {
     if (! mSemaphore) {
         if (! (mSemaphore = xSemaphoreCreateBinary())) {
@@ -379,7 +459,14 @@ void Tempizz::Run()
         if (mMode == MODE::SCAN) {
             mMode = MODE::NORMAL;
             ds18b20_addr_t addr[MaxNofDev];
+#if 1
             int nFound = ds18b20_scan_devices( mPin, addr, sizeof( addr ) / sizeof( addr[0] ) );
+#else
+            int nFound = 5;
+            for (int i = 0; i < nFound; ++i) {
+                addr[i] = 0xaa01 + i;
+            }
+#endif
             ESP_LOGI( TAG, "found %d devices", nFound );
             uint16_t const oldDevMask = mDevMask;
             mDevMask = 0;
@@ -424,7 +511,7 @@ void Tempizz::Run()
                     }
                 }
                 assert( i < MaxDevStored );
-                DevInfo devInfo{ addr[j], 0 };
+                DevInfo devInfo{ addr[j], 0, 0 };
                 if (i < mDevInfo.size()) 
                     mDevInfo[i] = devInfo;
                 else
@@ -457,6 +544,7 @@ void Tempizz::Run()
             sleep = mInterval[ INTERVAL::ERROR ];
             continue;
         }
+        TickType_t now = xTaskGetTickCount();
         uint16_t devMask = mDevMask;
         while (devMask) {
             uint8_t i = 31 - __builtin_clz(devMask);
@@ -474,13 +562,32 @@ void Tempizz::Run()
                     ESP_LOGE( TAG, "temperature %08x-%08x unavailable", (uint32_t) (addr >> 32), (uint32_t) addr );
                 }
             } else {
+                TickType_t deltaTicks = now - mDevInfo[i].time;
+                float deltaTemp = temperature - mDevInfo[i].value;
+                mDevInfo[i].time = now;
                 mDevInfo[i].value = temperature;
-                mDevInfo[i].time = xTaskGetTickCount();
-                std::string val = HttpHelper::String( temperature, 2 );
+
+                if (mCallback) {
+                    mCallback( mUserArg, mDevInfo[i].idx, temperature );
+                }
+                // last value read between slow and fast interval time -> usual behavior
+                // if ((deltaTicks >= (mInterval[ INTERVAL::SLOW ] - 5)) && (deltaTicks <= (mInterval[ INTERVAL::SLOW ] + 5)))
+                if ((abs(deltaTemp)/deltaTicks) >= (1.0/(60.0*configTICK_RATE_HZ))) {  // >= 1°C/min
+                    sleep = mInterval[ INTERVAL::FAST ];
+                }
+
+                std::string val = HttpHelper::String( temperature, 1 );
                 if (mDevInfo[i].name.length()) {
                     ESP_LOGI( TAG, "temperature %s: %s°C", mDevInfo[i].name.c_str(), val.c_str() );
                 } else {
                     ESP_LOGI( TAG, "temperature %08x-%08x: %s°C", (uint32_t) (addr >> 32), (uint32_t) addr, val.c_str() );
+                }
+                if (mDevInfo[i].idx) {
+                    std::string msg = "{ \"idx\": " + std::to_string( mDevInfo[i].idx )
+                                    + ", \"nvalue\": 0"
+                                    + ", \"svalue\": \"" + val + "\""
+                                    + " }";
+                    Mqtinator::Instance().Pub( 0, msg.c_str() ); // topic=0: no topic / just mPubTopic
                 }
             }
         }

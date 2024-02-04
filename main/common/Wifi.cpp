@@ -118,12 +118,15 @@ void Wifi::Event( esp_event_base_t event_base, int32_t event_id,
         mMode = MODE_WAITDHCP;
     } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
         ESP_LOGW( TAG, "left WLAN" );
-        if (mMode != MODE_RECONNECTING) {
-            mMode = MODE_RECONNECTING;
-            ESP_LOGW( TAG, "re-connecting..." );
-            // esp_wifi_start();
-            esp_wifi_connect();
+        if (mMode == MODE_RECONNECTING) {
+            ESP_LOGW( TAG, "disconnected during re-connect -> reboot in 1 second" );
+            vTaskDelay( configTICK_RATE_HZ );
+            esp_restart();
         }
+        mMode = MODE_RECONNECTING;
+        ESP_LOGW( TAG, "re-connecting..." );
+        // esp_wifi_start();
+        esp_wifi_connect();
     } else {
         ESP_LOGE( TAG, "unhandled wifi event %d", event_id );
     }

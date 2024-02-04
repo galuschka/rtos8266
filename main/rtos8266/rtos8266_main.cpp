@@ -1,5 +1,5 @@
 /*
- * main.cpp - just basic features: setup wifi paramter and update
+ * rtos8266_main.cpp - just basic features: setup wifi paramter and update
  */
 
 //define LOG_LOCAL_LEVEL ESP_LOG_DEBUG

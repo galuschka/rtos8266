@@ -21,7 +21,7 @@ Indicator::Indicator() :
         mPinSecondary{ GPIO_NUM_MAX },
         mBlink { 0 },
         mBlinkSecondary { 0 },
-        mSigMask { -1 },
+        mSigMask { 0 },
         mTaskHandle { 0 },
         mSemaphore { 0 }
 {
@@ -74,22 +74,27 @@ void Indicator::Indicate( Indicator::STATUS status )
 {
     long sigMask = 0;
     switch (status) {
-    case STATUS_ERROR:      // ######_##_##_##_
-        sigMask = 0x12121216;
+    case STATUS_ERROR:      // ##########_##_##_##_
+        sigMask = 0x1212121a;
         break;
-    case STATUS_AP:         // #############_#_
-        sigMask = 0x111d;
+    case STATUS_AP:         // #######_#_#######_#_
+        sigMask = 0x1117;
         break;
-    case STATUS_CONNECT:    // ###############_
-        sigMask = 0x1f;
+    case STATUS_CONNECT:    // #########_#########_
+        sigMask = 0x19;
         break;
-    case STATUS_IDLE:       // _______________#
-        sigMask = 0xf1;
+    case STATUS_IDLE:       // #_________#_________
+        sigMask = 0x91;
         break;
-    case STATUS_ACTIVE:     // ########________
-        sigMask = 0x88;
+    case STATUS_ACTIVE:     // ##########__________
+        sigMask = 0xaa;
         break;
     }
+    SigMask( sigMask );
+}
+
+void Indicator::SigMask( unsigned long sigMask )
+{
     mBlink = 0;
     if (mSigMask == sigMask)
         return;
@@ -106,7 +111,7 @@ void Indicator::Blink( uint8_t num )
 void Indicator::Steady( uint8_t on )
 {
     mBlink = 0;
-    mSigMask = on ? 0 : -1;
+    mSigMask = on ? 1 : 0;
     xSemaphoreGive( mSemaphore );
 }
 
@@ -124,7 +129,10 @@ void Indicator::Run()
 {
     if (mPinSecondary < GPIO_NUM_MAX)
         gpio_set_level( mPinSecondary, 1 );  // low active - switch off
-    int phase = 0;
+
+    int           phase   = 0;
+    unsigned long sigMask = 0;
+
     while (true) {
         if (mBlinkSecondary && (mPinSecondary < GPIO_NUM_MAX)) {
             gpio_set_level( mPinSecondary, 0 );
@@ -145,30 +153,30 @@ void Indicator::Run()
                 vTaskDelay( configTICK_RATE_HZ / 16 );
             } while (--mBlink);
             vTaskDelay( configTICK_RATE_HZ / 16 );
-            phase = 0;  // restart old modus
+            sigMask = 0;
         }
 
-        if (mSigMask == 0) {
+        if (mSigMask == 1) {
             gpio_set_level( mPinPrimary, 0 );   // low active - switch on
             xSemaphoreTake( mSemaphore, portMAX_DELAY );
+            sigMask = 0;
             continue;
         }
-        if (mSigMask == -1) {
+        if (mSigMask == 0) {
             gpio_set_level( mPinPrimary, 1 );   // low active - switch off
             xSemaphoreTake( mSemaphore, portMAX_DELAY );
+            sigMask = 0;
             continue;
         }
 
-        if (++phase >= 8)
+        if (! sigMask) {
+            sigMask = mSigMask;
             phase = 0;
-
-        int duration = (mSigMask >> (phase * 4)) & 0xf;
-        if (!duration) {
-            phase = 0;
-            duration = mSigMask & 0xf;
         }
+        gpio_set_level( mPinPrimary, phase & 1 );  // low active!
+        xSemaphoreTake( mSemaphore, ((sigMask & 0xf) * configTICK_RATE_HZ) / 10 );
 
-        gpio_set_level( mPinPrimary, phase & 1 );
-        xSemaphoreTake( mSemaphore, (duration * configTICK_RATE_HZ) / 8 );
+        sigMask >>= 4;
+        ++phase;
     }
 }

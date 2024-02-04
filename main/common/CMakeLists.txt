@@ -5,8 +5,10 @@ idf_component_register(SRCS Indicator.cpp
                             HttpParser.cpp
                             Updator.cpp
                             Mqtinator.cpp
+                            Temperator.cpp
                             Relay.cpp
                INCLUDE_DIRS ""
+          PRIV_INCLUDE_DIRS ../common ../compat ../../esp-open-rtos/extras
                    REQUIRES esp_common
                             pthread
                             nvs_flash

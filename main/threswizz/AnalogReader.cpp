@@ -1,8 +1,5 @@
 /*
- * Pressure.cpp
- *
- *  Created on: 06.05.2020
- *      Author: galuschka
+ * AnalogReader.cpp
  */
 
 #include "AnalogReader.h"
@@ -17,23 +14,18 @@
 
 const char *const TAG = "AnalogReader";
 
-//@formatter:off
-AnalogReader::AnalogReader( gpio_num_t gpioSensorPwrSply, Relay &relay )
-                            : mRelay        { relay },
-                              TaskHandle    { 0 },
-                              Store         { 0 },
-                              StorePtr      { 0 },
-                              StoreEnd      { 0 },
-                              DimStore      { 0 },
-                              Delay         { 0 },
+AnalogReader::AnalogReader( gpio_num_t gpioSensorPwrSply, Relay &relay1, Relay & relay2 )
+                            : mRelay1       { relay1 },
+                              mRelay2       { relay2 },
                               GpioPwr       { gpioSensorPwrSply }
 {
-//@formatter:on
 }
+
 AnalogReader::~AnalogReader()
 {
-    int delay = Delay;
-    Delay = 0;
+    int delay = DelayReport;
+    DelayAvg = 0;
+    DelayReport = 0;
     vTaskDelay( delay );
     vTaskDelete( TaskHandle );
     TaskHandle = 0;
@@ -47,39 +39,71 @@ AnalogReader::~AnalogReader()
     free( tofree );
 }
 
-extern "C" void PressureTask( void * pressure )
+extern "C" void AnalogReaderTask( void * analogreader )
 {
-    ((AnalogReader*) pressure)->Run();
+    ((AnalogReader*) analogreader)->Run();
 }
 
 void AnalogReader::Run()
 {
-    while (Delay) {
-        uint16_t val;
-        if (GpioPwr != GPIO_NUM_MAX) {
-            gpio_set_level( GpioPwr, 1 );
-            vTaskDelay( 2 );
-        }
-        const esp_err_t err = adc_read( &val );
-        if (GpioPwr != GPIO_NUM_MAX)
-            gpio_set_level( GpioPwr, 0 );
+    while (DelayAvg)
+    {
+        TickType_t repStart = xTaskGetTickCount();
+        TickType_t start = repStart;
 
-        if (err != ESP_OK) {
-            ESP_LOGE( TAG, "adc_read() failed: %d", err );
-        } else {
-            val |= mRelay.Status() << 15;
-            *StorePtr++ = val;
-            if (StorePtr >= StoreEnd)
-                StorePtr -= DimStore;
+        uint8_t measRemain = NumMeasAvg;
+        uint8_t measValid = 0;
+        uint16_t avg = 0;
+
+        while (DelayAvg) {
+            uint16_t val;
+            if (GpioPwr != GPIO_NUM_MAX) {
+                gpio_set_level( GpioPwr, 1 );
+                vTaskDelay( 2 );
+            }
+            const esp_err_t err = adc_read( &val );
+            if (GpioPwr != GPIO_NUM_MAX)
+                gpio_set_level( GpioPwr, 0 );
+
+            if (err != ESP_OK) {
+                ESP_LOGE( TAG, "adc_read() failed: %d", err );
+            } else {
+                avg += val;
+                ++measValid;
+            }
+            if (! --measRemain)
+                break;
+
+            start += DelayAvg;
+            int delay = (int) (start - xTaskGetTickCount());
+            if (delay > 0)
+                vTaskDelay( delay );
         }
-        if (GpioPwr != GPIO_NUM_MAX)
-            vTaskDelay( Delay - 2 );
+
+        bool on = mRelay1.Status() & mRelay2.Status();
+
+        if (! measValid)
+            avg = 1024;
         else
-            vTaskDelay( Delay );
+            avg = (avg + (measValid/2)) / measValid;
+
+        if (Callback)
+            Callback( UserArg, avg );
+
+        *StorePtr++ = avg | (on << 15);
+        if (StorePtr >= StoreEnd)
+            StorePtr -= DimStore;
+
+        start = repStart + DelayReport;
+        int delay = (int) (start - xTaskGetTickCount());
+        if (delay > 0)
+            vTaskDelay( delay );
+        else
+            vTaskDelay( DelayReport );  // should not happen - just safety
     }
 }
 
-bool AnalogReader::Init( int frequency, int dimStore )
+bool AnalogReader::Init( uint8_t reportInterval, uint8_t numMeasAvg, uint8_t measAvgFrequency, uint16_t dimStore )
 {
     {
         adc_config_t adc_config;
@@ -99,6 +123,8 @@ bool AnalogReader::Init( int frequency, int dimStore )
                 sizeof(value_t) );
         return false;
     }
+    for (int i = 0; i < dimStore; ++i)
+        Store[i] = INV_VALUE;
 
     if (GpioPwr != GPIO_NUM_MAX) {
         gpio_config_t io_conf;
@@ -115,10 +141,12 @@ bool AnalogReader::Init( int frequency, int dimStore )
     DimStore = dimStore;
     StoreEnd = Store + dimStore;    // beyond end
     StorePtr = Store;               // write pointer
-    Delay    = (int)(configTICK_RATE_HZ / frequency);
 
-    xTaskCreate( PressureTask, "Pressure", /*stack size*/1024, this, /*prio*/1,
-            &TaskHandle );
+    DelayAvg    = (uint16_t)(configTICK_RATE_HZ / measAvgFrequency);
+    DelayReport = (uint16_t)(configTICK_RATE_HZ * reportInterval);
+    NumMeasAvg  = numMeasAvg;
+
+    xTaskCreate( AnalogReaderTask, "AnalogReader", /*stack size*/1024, this, /*prio*/1, & TaskHandle );
     if (!TaskHandle) {
         ESP_LOGE( TAG, "xTaskCreate failed" );
         free( Store );
@@ -126,11 +154,19 @@ bool AnalogReader::Init( int frequency, int dimStore )
         StorePtr = 0;
         StoreEnd = 0;
         DimStore = 0;
-        Delay = 0;
+        DelayAvg = 0;
+        DelayReport = 0;
+        NumMeasAvg = 0;
         return false;
     }
 
     return true;
+}
+
+void AnalogReader::SetCallback( callback_t callback, void * userarg )
+{
+    UserArg = userarg;
+    Callback = callback;
 }
 
 const AnalogReader::value_t* AnalogReader::ValuePtr(
@@ -148,11 +184,11 @@ const AnalogReader::value_t* AnalogReader::ValuePtr(
     return ptr;
 }
 
-void AnalogReader::GetValues( AnalogReader::value_t * dest, int dim ) const
+void AnalogReader::GetValues( AnalogReader::value_t * dest, uint16_t dim ) const
 {
     if (!Store)
         return;
-    const value_t *ptr = ValuePtr( StorePtr, -dim );
+    const value_t *ptr = ValuePtr( StorePtr, DimStore - dim );
     while (dim--) {
         *dest++ = *ptr++;
         if (ptr >= StoreEnd)
@@ -160,16 +196,9 @@ void AnalogReader::GetValues( AnalogReader::value_t * dest, int dim ) const
     }
 }
 
-AnalogReader::value_t AnalogReader::Average( int num ) const
+AnalogReader::value_t AnalogReader::GetValue() const
 {
     if (!Store)
         return 0;
-    unsigned long sum = 0;
-    const value_t *ptr = ValuePtr( StorePtr, -num );
-    for (int i = num; i; --i) {
-        sum += (*ptr++ & 0x7fff);
-        if (ptr >= StoreEnd)
-            ptr -= DimStore;
-    }
-    return (value_t) (sum / num);
+    return (*ValuePtr( StorePtr, -1 ) & 0x7fff);
 }

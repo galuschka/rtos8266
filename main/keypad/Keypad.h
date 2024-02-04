@@ -8,7 +8,7 @@
 #ifndef MAIN_KEYPAD_H_
 #define MAIN_KEYPAD_H_
 
-#include "gpio.h"   // gpio_config_t
+#include <driver/gpio.h>   // gpio_config_t
 
 typedef unsigned char  u8;
 typedef unsigned short u16;

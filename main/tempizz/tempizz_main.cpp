@@ -10,8 +10,8 @@
  *               ADC0   - A0         RX - GPIO3
  *               GPIO16 - D0         D1 - GPIO5
  *               GPIO14 - D5         D2 - GPIO4
- *               GPIO12 - D6         D3 - GPIO0
- * onewire <---  GPIO13 - D7         D4 - GPIO2  (onboard LED)
+ *               GPIO12 - D6         D3 - GPIO0 ---> onewire
+ *               GPIO13 - D7         D4 - GPIO2  (onboard LED)
  *               GPIO15 - D8         G  - GND
  *                      - 3V3        5V - power supply
  */
@@ -21,7 +21,7 @@
 #include "Indicator.h"
 #include "Updator.h"
 #include "Mqtinator.h"
-#include "Tempizz.h"
+#include "Temperator.h"
 
 #include <esp_event.h>  // esp_event_loop_create_default()
 #include <esp_netif.h>  // esp_netif_init()
@@ -75,6 +75,6 @@ extern "C" void app_main()
     WebServer::Instance().Init();
 
     ESP_LOGD( TAG, "OneWire..." );
-    Tempizz tempizz{ GPIO_NUM_13 };
-    tempizz.Run();
+    Temperator temperator{ GPIO_NUM_0 };
+    temperator.Run();
 }

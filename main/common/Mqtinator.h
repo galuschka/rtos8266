@@ -57,7 +57,7 @@ private:
     uint16_t  mInLen         { 0 };
     uint16_t  mInReadLen     { 0 };
     char      mInTopic[16]   { "" };
-    char      mInData[32]    { "" };
+    char      mInData[1024]  { "" };
 
     std::map<std::string, SubCallback> mSubCallbackMap {};
 

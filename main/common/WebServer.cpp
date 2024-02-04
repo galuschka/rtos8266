@@ -709,7 +709,7 @@ extern "C" httpd_handle_t start_webserver( void )
 {
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 16;
+    config.max_uri_handlers = 20;
 
     // Start the httpd server
     ESP_LOGI( TAG, "Starting web server on port: '%d'", config.server_port );

@@ -1,6 +1,7 @@
 /*
  * HttpParser.cpp
  */
+//define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 
 #include "HttpParser.h"
 
@@ -60,6 +61,8 @@ bool HttpParser::ParsePostData( httpd_req_t * req )
         const char * ampersand = strchr( buf + 2, '&' );
         if (! ampersand)
             ampersand = readend;
+
+        ESP_LOGD( TAG, "Parse( \"%.*s\" / ampersand at offset %d )", readend-buf,buf, ampersand-buf );
         if (! Parse( buf, ampersand )) {
             return false;
         }
@@ -85,12 +88,16 @@ bool HttpParser::Parse( const char * str, const char * end )
 
     for (uint8_t i = 0; i < mNofFields; ++i) {
         Input * const in = & mInArray[i];
-        if ((mFieldsParsed & (1 << i))
-            || strncmp( str, in->key, keylen )
-            || in->key[keylen])
+        if (strncmp( str, in->key, keylen ) || in->key[keylen])
             continue;
 
         // key match:
+
+        if (mFieldsParsed & (1 << i)) {
+            ESP_LOGI( TAG, "parsed duplicate key \"%.*s\"", keylen, str );
+            return true;  // silently skip duplicate fields
+        }
+
         mFieldsParsed |= 1 << i;
         if (! (in->buf && in->len))
             return true;
@@ -112,7 +119,7 @@ bool HttpParser::Parse( const char * str, const char * end )
         in->len = bp - in->buf;
         return true;
     }
-    ESP_LOGI( TAG, "parsed unknown key %.*s", keylen, str );
+    ESP_LOGI( TAG, "parsed unknown key \"%.*s\"", keylen, str );
     return true;  // silently skip unknown fields
 }
 

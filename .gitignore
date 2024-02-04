@@ -1,1 +1,6 @@
+.settings
+.vscode
+.cproject
+.project
 build
+images

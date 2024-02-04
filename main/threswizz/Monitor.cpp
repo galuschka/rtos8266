@@ -52,7 +52,7 @@ void Monitor::Show( struct httpd_req * req ) const
         Y0 = HEIGHT + (FONT_SIZE / 2) + 2,
         DIM_Y = HEIGHT + FONT_SIZE + 4,
 
-        N = 100,         // show last N values
+        N =  60,         // show last N values
         FACTOR_X  = 10,  // graph width: N * FACTOR_X pixel
         X_LABEL   = 75,  // points reserved for 1st label text
         GROUP_IND = 75,  // label indent per group
@@ -70,7 +70,7 @@ void Monitor::Show( struct httpd_req * req ) const
     unsigned char cnt[3] = { 0 };
     int group;
     for (int i = 0; i < N; ++i) {
-        value_t const v = val[i] & AnalogReader::MAX_VALUE;
+        value_t const v = val[i] & AnalogReader::MASK_VALUE;
         group = (val[i] & 0x8000) ? 2 : 1;
         if (!cnt[group]) {
             minmax[group][0] = minmax[group][1] = v;
@@ -98,13 +98,13 @@ void Monitor::Show( struct httpd_req * req ) const
         }
     }
     // minmax[0][0] = 0;
-    // minmax[0][1] = AnalogReader::MAX_VALUE;
+    // minmax[0][1] = AnalogReader::NOF_VALUES;
     {
-        double const f = floor( minmax[0][0] * 10.0 / AnalogReader::MAX_VALUE );
-        double const c = ceil( minmax[0][1] * 10.0 / AnalogReader::MAX_VALUE );
+        double const f = floor( minmax[0][0] * 10.0 / AnalogReader::NOF_VALUES );
+        double const c = ceil( minmax[0][1] * 10.0 / AnalogReader::NOF_VALUES );
 
-        minmax[0][0] = (value_t) (int) (f / 10.0 * AnalogReader::MAX_VALUE);
-        minmax[0][1] = (value_t) (int) (c / 10.0 * AnalogReader::MAX_VALUE);
+        minmax[0][0] = (value_t) (int) (f / 10.0 * AnalogReader::NOF_VALUES);
+        minmax[0][1] = (value_t) (int) (c / 10.0 * AnalogReader::NOF_VALUES);
     }
     float const scaleY = HEIGHT * 1.0 / (minmax[0][1] - minmax[0][0]);
 
@@ -135,7 +135,7 @@ void Monitor::Show( struct httpd_req * req ) const
                           color[group], (X_LABEL - 4) + (group * GROUP_IND),
                           Y( minmax[group][kind] ));
                 hh.Add( buf ); // split cause compiler warning
-                hh.Add( minmax[group][kind] * 100.0 / AnalogReader::MAX_VALUE, group ? 1 : 0 );
+                hh.Add( minmax[group][kind] * 100.0 / AnalogReader::NOF_VALUES, group ? 1 : 0 );
                 // if (group) hh.Add( "&puncsp;&nbsp;" );  // unknown purpose...
                 hh.Add( "&nbsp;&percnt;</tspan>\n" );
             }
@@ -148,7 +148,7 @@ void Monitor::Show( struct httpd_req * req ) const
                           "  <tspan style=\"fill: %s;\" x=\"%d\" y=\"%d\">",
                           color[group], (X_LABEL - 4) + (group * GROUP_IND), Y( avg ) );
                 hh.Add( buf ); // split cause compiler warning
-                hh.Add( avg * 100.0 / AnalogReader::MAX_VALUE, 1 );
+                hh.Add( avg * 100.0 / AnalogReader::NOF_VALUES, 1 );
                 hh.Add( "&nbsp;&percnt;</tspan>\n" );
             }
         }
@@ -182,7 +182,7 @@ void Monitor::Show( struct httpd_req * req ) const
 
     set = 0;
     for (int i = 0; i < N; ++i) {
-        value_t const v = val[i] & AnalogReader::MAX_VALUE;
+        value_t const v = val[i] & AnalogReader::MASK_VALUE;
         value_t const y = Y( v );
         int const x = X0 + (i * FACTOR_X);
 

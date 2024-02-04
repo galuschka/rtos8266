@@ -25,6 +25,7 @@ public:
 
     static std::string String( long   val, int minLength = 1 );
     static std::string String( double val, int precision = 0 );
+    static std::string String( float  val, int precision = 0 ) { return String((double)val,precision); };
     static std::string HexString( uint32_t val, int minLength =  8 );
     static std::string HexString( uint64_t val, int minLength = 16 );
 

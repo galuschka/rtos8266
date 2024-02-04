@@ -23,13 +23,10 @@ public:
     };
     Relay( gpio_num_t pin, bool openDrain = false, bool lowActive = false );
 
-    bool Status()
-    {
-        return Active;
-    }
-
-    void SetMode( GenMode newMode );
-    void AutoOn( bool on );  // switch on/off by controlling module
+    bool    Status()  { return Active; }
+    GenMode GetMode() { return Mode; };
+    void    SetMode( GenMode newMode );
+    void    AutoOn( bool on );  // switch on/off by controlling module
 
     unsigned long TotalOn();      // total ON time in ticks
     unsigned long TotalOnSecs();  // total ON time in secs

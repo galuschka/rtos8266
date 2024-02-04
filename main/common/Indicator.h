@@ -27,6 +27,7 @@ public:
     };
     bool Init( gpio_num_t pinPrimary, gpio_num_t pinSecondary = GPIO_NUM_MAX );
     void Indicate( STATUS status );
+    void SigMask( unsigned long sigMask );  // 0x89abcdef -> f on, e off, d on, ...
     void Blink( uint8_t num );  // num = number of times on
     void Steady( uint8_t on );  // steady on/off
     void Access( uint8_t ok );  // false: 2x primary / true: 1x secondary
@@ -36,12 +37,12 @@ public:
 
     Indicator();
 private:
-    gpio_num_t mPinPrimary;
-    gpio_num_t mPinSecondary;
-    uint8_t mBlink;
-    uint8_t mBlinkSecondary;
-    long mSigMask;
-    TaskHandle_t mTaskHandle;
+    gpio_num_t        mPinPrimary;
+    gpio_num_t        mPinSecondary;
+    uint8_t           mBlink;
+    uint8_t           mBlinkSecondary;
+    unsigned long     mSigMask;
+    TaskHandle_t      mTaskHandle;
     SemaphoreHandle_t mSemaphore;
 };
 

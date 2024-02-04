@@ -5,7 +5,7 @@
  *      Author: galuschka
  */
 
-#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+//define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 
 #include "Mqtinator.h"
 #include "Indicator.h"
@@ -99,7 +99,7 @@ void Mqtinator::Run()
 
         if (mDataComplete) {
             mDataComplete = false;
-            ESP_LOGD( TAG, "task got \"%s\" \"%s\"", mInTopic, mInData );
+            ESP_LOGD( TAG, "task got \"%s\" \"%.16s ...\" (%d/%d bytes)", mInTopic, mInData, strlen(mInData), mInLen );
 # if 0
             for (auto it : mSubCallbackMap)
                 if (! strcmp( it.first, mInTopic )) {
@@ -133,10 +133,12 @@ bool Mqtinator::Connect()
     Indicator::Instance().Indicate( Indicator::STATUS_CONNECT );
     err_t e = mqtt_client_connect( & s_client, & mHost, mPort, &mqtt_connection_cb, 0, & ci );
 
-    // For now just print the result code if something goes wrong
     if (e != ERR_OK) {
+        // For now just reboot if something goes wrong
         Indicator::Instance().Indicate( Indicator::STATUS_ERROR );
-        ESP_LOGE( TAG, "mqtt_client_connect return %d", e );
+        ESP_LOGE( TAG, "mqtt_client_connect return %d -> reboot in 1 second", e );
+        vTaskDelay( configTICK_RATE_HZ );
+        esp_restart();
     } else {
         ESP_LOGD( TAG, "mqtt_client_connect initiated" );
     }
@@ -156,9 +158,11 @@ bool Mqtinator::Pub( const char * topic, const char * string, uint8_t qos, uint8
     **        1: retain: subscribers in future will get it too
     */
     std::string fullTopic = mPubTopic;
-    if (!fullTopic.empty())
-        fullTopic += "/";
-    fullTopic += topic;
+    if (topic) {
+        if (!fullTopic.empty())
+            fullTopic += "/";
+        fullTopic += topic;
+    }
     err_t e = mqtt_publish( & s_client, fullTopic.c_str(), string, strlen(string),
                             qos, retain,
                             mqtt_pub_request_cb, /*arg*/0 );
@@ -172,9 +176,14 @@ bool Mqtinator::Pub( const char * topic, const char * string, uint8_t qos, uint8
 bool Mqtinator::Sub( const char * topic, SubCallback callback )
 {
     std::string fullTopic = mSubTopic;
-    if (!fullTopic.empty())
-        fullTopic += "/";
-    fullTopic += topic;
+    if (topic) {
+        if (!fullTopic.empty())
+            fullTopic += "/";
+        fullTopic += topic;
+    }
+
+    if (! topic)
+        topic = "-";
 
     err_t e = ERR_OK;
     if (callback) {
@@ -293,7 +302,11 @@ void Mqtinator::CbConnect( mqtt_client_t * client, void * arg, mqtt_connection_s
         if (!prefix.empty())
             prefix += "/";
         for (auto it : mSubCallbackMap) {
-            std::string fullTopic = prefix + it.first;
+            std::string fullTopic;
+            if (it.first == "-")
+                fullTopic = mSubTopic;
+            else
+                fullTopic = prefix + it.first;
 
             ESP_LOGD( TAG, "subscribing to %s", fullTopic.c_str() );
             mqtt_subscribe( & s_client, fullTopic.c_str(), 1, &mqtt_sub_request_cb, /*arg*/0 );
@@ -327,8 +340,13 @@ void Mqtinator::CbSubTopic( void * arg, const char * topic, u32_t tot_len )
 {
     ESP_LOGD( TAG, "CbSubTopic \"%s\" with %d bytes", topic, tot_len );
     uint8_t slen = strlen(mSubTopic);
-    if (slen && (topic[slen] == '/') && ! strncmp( topic, mSubTopic, slen ))
-        topic += slen + 1;
+    if (! strncmp( topic, mSubTopic, slen )) {
+        topic += slen;
+        if (*topic == '/')
+            ++topic;
+        else
+            topic = "-";
+    }
     strncpy( mInTopic, topic, sizeof(mInTopic) - 1);
     mInTopic[sizeof(mInTopic) - 1] = 0;
     mInLen = (uint16_t) tot_len;

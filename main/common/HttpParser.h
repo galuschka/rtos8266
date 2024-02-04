@@ -18,21 +18,21 @@ public:
                 *buf = 0;
         };
     };
-    HttpParser( Input * inArray, uint8_t nofFields )
-        : mInArray{inArray},
-          mNofFields{nofFields},
-          mFieldsParsed{0}
+    HttpParser( Input * inArray, const uint8_t nofFields )
+        : mInArray      { inArray },
+          mNofFields    { nofFields },
+          mFieldsParsed { 0 }
     {
     };
 
     bool ParsePostData( httpd_req_t * req );
     bool ParseUriParam( httpd_req_t * req );
-    uint8_t Fields() { return mFieldsParsed; };  // +fields without ...=value
+    uint32_t Fields() { return mFieldsParsed; };  // +fields without ...=value
 private:
     bool Parse( const char * str, const char * end );
     void ClearUnparsed();
 
-    Input * mInArray;
-    uint8_t mNofFields;
-    uint8_t mFieldsParsed;
+    Input * const mInArray;
+    uint8_t const mNofFields;
+    uint32_t      mFieldsParsed;
 };

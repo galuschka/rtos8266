@@ -111,12 +111,12 @@ std::string HttpHelper::String( long val, int minLength )
 
 std::string HttpHelper::String( double val, int precision )
 {
-    long l = (long) (val * pow( 10, precision ) + 0.5);
+    long l = (long) ((val * pow( 10, precision )) + 0.5);
     std::string ret = String( l, precision + 1 );
     if (precision) {
         ret.insert( ret.cend() - precision, '.' );
     }
-    ESP_LOGD( TAG, "stringified float to \"%s\"", ret.c_str() ); vTaskDelay(1);
+    ESP_LOGD( TAG, "stringified double to \"%s\"", ret.c_str() ); vTaskDelay(1);
     return ret;
 
     // ESP_LOGD( TAG, "stringify float %.*f", precision, val ); vTaskDelay(1);
