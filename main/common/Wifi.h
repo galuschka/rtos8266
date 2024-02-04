@@ -1,8 +1,5 @@
 /*
  * Wifi.h
- *
- *  Created on: 29.04.2020
- *      Author: galuschka
  */
 
 #ifndef MAIN_WIFI_H_
@@ -40,17 +37,20 @@ public:
 
     void Init( int connTimoInSecs );
 
-    u32_t GetIpAddr() { return mIpAddr.addr; }
-    const char* GetHost() { return mHost; }
-    const char* GetSsid() { return mSsid; }
-    const char* GetPassword() { return mPassword; }
-    bool StationMode() { return mMode == MODE_STATION; }
-    bool AccessPoint() { return mMode == MODE_ACCESSPOINT; }
+    u32_t        GetIpAddr()             const { return mIpAddr.addr; }
+    const char * GetHost()               const { return mHost; }
+    const char * GetBgCol()              const { return mBgCol; }
+    const char * GetSsid(int i)          const { return mSsid[i]; }
+    const char * GetPassword(int i)      const { return mPasswd[i]; }
+    bool         StationMode()           const { return mMode == MODE_STATION; }
+    bool         AccessPoint()           const { return mMode == MODE_ACCESSPOINT; }
+    u16_t        NoStationCounter(int i) const { return mNoStation[i]; }
 
-    bool SetParam( const char * host, const char * ssid, const char * password );
+    bool SetParam( const char * host,  const char * bgcol,
+                   const char * ssid0, const char * password0,
+                   const char * ssid1, const char * password1 );
 
-    void Event( esp_event_base_t event_base, int32_t event_id,
-            void * event_data );
+    void Event( esp_event_base_t event_base, int32_t event_id, void * event_data );
     void GotIp( ip_event_got_ip_t * event_data );
     void LostIp();
     void NewClient( ip_event_ap_staipassigned_t * event );
@@ -58,15 +58,19 @@ private:
     void ReadParam();
     void ModeAp();
     bool ModeSta( int connTimoInSecs );
+    void SaveNoStation() const;
 
 private:
     EventGroupHandle_t mConnectEventGroup { 0 };
     ip4_addr_t mIpAddr  { 0 };
     char mHost[16]      { "" };
-    char mSsid[16]      { "" };
-    char mPassword[32]  { "" };
+    char mBgCol[12]     { "" };
+    char mSsid[2][16]   { "", "" };
+    char mPasswd[2][32] { "", "" };
+    int  mStaIdx;
     char mMode          { MODE_IDLE };
     bool mReconnect     { false };
+    uint16_t mNoStation[2] { 0, 0 };
 };
 
 #endif /* MAIN_WIFI_H_ */

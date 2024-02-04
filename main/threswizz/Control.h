@@ -1,8 +1,5 @@
 /*
  * Control.h
- *
- *  Created on: 19.05.2020
- *      Author: holger
  */
 
 #ifndef MAIN_CONTROL_H_
@@ -19,6 +16,7 @@ class AnalogReader;
 class Relay;
 class Indicator;
 class Input;
+class Monitor;
 
 class Control
 {
@@ -35,14 +33,33 @@ public:
         MODE_TEST3      = 7,  // test relais 1 + 2 (3 secs, then -> MODE_AUTO_OFF or ..._ON)
 #define MODE_TEST_NUM(x) ((x) & 3)  // _TEST1 -> 1 / _TEST2 -> 2 / _TEST3 -> 3
 
+#define MODE_SAFETY_OFF(x) ((x) & 8)
         MODE_TESTOFF   =  8,  // manual off / start test sequence
         MODE_FASTON    =  9,  // switch on threshold reached faster than minimal expected time (stay off)
         MODE_FASTOFF   = 10,  // switch off threshold reached faster than minimal expected time
         MODE_OVERHEAT  = 11,  // safety off because of overheat
-     // MODE_WET       = 12,  // free for further checks
+        MODE_VALUE_OOR = 12,  // value out of range
+        MODE_NOVALUE   = 13,  // invalid value (measurement error) repeated times
 
         COUNT_MODES
     };
+
+#define MODE_NAMES  "off", \
+                    "on", \
+                    "pause", \
+                    "test1end", \
+                    "test2end", \
+                    "test1", \
+                    "test2", \
+                    "test3", \
+                    "test-off", \
+                    "fast-on", \
+                    "fast-off", \
+                    "overheat", \
+                    "oor", \
+                    "novalue", \
+                    "<invmode>"
+
     enum MBIT {
         MBIT_AUTO_OFF   = 1 << MODE_AUTO_OFF,
         MBIT_AUTO_ON    = 1 << MODE_AUTO_ON,
@@ -81,7 +98,7 @@ public:
     typedef unsigned short value_t;
     typedef unsigned long  timo_t;
 
-    Control( AnalogReader & reader, Relay & relay1, Relay & relay2, Input & input );
+    Control( AnalogReader & reader, Relay & relay1, Relay & relay2, Input & input, Monitor & monitor );
 
     void Run( Indicator & indicator );  // the thread function (call in main)
     void Temperature( uint16_t idx, float temperature );
@@ -106,12 +123,14 @@ private:
     Relay        & mRelay1;
     Relay        & mRelay2;
     Input        & mInput;
+    Monitor      & mMonitor;
 
     value_t  mThresOff    { 0x200 };  // switch off, when passing threshold
     value_t  mThresOn     {  0x80 };  // switch on, when passing threshold
     timo_t   mMinOffTicks { configTICK_RATE_HZ *  5 };       // stay off at least ... ticks
     timo_t   mMinOnTicks  { configTICK_RATE_HZ * 10 };       // must stay on at least ... ticks (otherwise safety off)
     timo_t   mMaxOnTicks  { configTICK_RATE_HZ * 60 * 10 };  // switch off at least after ... ticks
+    value_t  mValRange[2] { AnalogReader::NOF_VALUES/20, AnalogReader::NOF_VALUES*19/20 };  // safety-off, when exceeding valid range
     value_t  mValueTol    { 0 };  // threshold to publish changed value
     uint16_t mValueIdx    { 0 };  // device index to publish value
     uint16_t mModeIdx     { 0 };  // device index to publish mode
@@ -119,12 +138,18 @@ private:
     uint8_t  mTempMax    { 99 };  // safety switch off on overheat
 
     uint8_t  mMode { MODE_TESTOFF };  // effective operational mode
-    uint8_t  mModeRemote { 0 };      // mode set by MQTT subscription
-    uint8_t  mEvents { 0 };          // bit-or-ed mask of events to be handled
+    uint8_t  mModeRemote { 0 };       // mode set by MQTT subscription
+    uint8_t  mEvents     { 0 };       // bit-or-ed mask of events to be handled
+    uint8_t  mInvValCnt  { 3 };       // 3 times in series invalid value -> safety-off
 
     value_t  mValue { AnalogReader::INV_VALUE };
 
+    uint32_t mLoopCnt    { 0 };  // loops
+    uint32_t mDelayCnt   { 0 };  // loops with xSemaphoreTake waiting
+
     SemaphoreHandle_t mSemaphore { 0 };
+
+    static const char * const mModeName[];
 };
 
 #endif /* MAIN_CONTROL_H_ */

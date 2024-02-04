@@ -83,7 +83,7 @@ void AnalogReader::Run()
         bool on = mRelay1.Status() & mRelay2.Status();
 
         if (! measValid)
-            avg = 1024;
+            avg = INV_VALUE;
         else
             avg = (avg + (measValid/2)) / measValid;
 

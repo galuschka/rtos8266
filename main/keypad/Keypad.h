@@ -1,8 +1,5 @@
 /*
  * Keypad.h
- *
- *  Created on: 07.01.2022
- *      Author: holger
  */
 
 #ifndef MAIN_KEYPAD_H_

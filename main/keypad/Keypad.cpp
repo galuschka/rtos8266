@@ -1,8 +1,5 @@
 /*
  * Keypad.cpp
- *
- *  Created on: 07.01.2022
- *      Author: holger
  */
 
 //define LOG_LOCAL_LEVEL ESP_LOG_DEBUG

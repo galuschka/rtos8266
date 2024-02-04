@@ -1,0 +1,14 @@
+#!/bin/sh
+
+# makeall
+
+x() {
+    printf "\033[4;31m%"`tput cols`"s\033[m\n" " "
+    echo "\033[0;33m + \033[0;36m$@\033[m"
+    eval "$@"
+}
+
+x make PNAME=keypad
+x make PNAME=smiffer
+x make PNAME=tempizz
+x make PNAME=threswizz

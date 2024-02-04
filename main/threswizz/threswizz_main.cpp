@@ -97,12 +97,12 @@ extern "C" void app_main()
     Monitor      monitor{ reader };
     Input        input  { GPIO_NUM_14 };                    // switch to manual control
     Temperator   temperator{ GPIO_NUM_0 };                        // one wire on GPIO 0
-    Control      control{ reader, relay1, relay2, input }; // off: reaching 1/2 FS / on: falling below 1/8 FS
+    Control      control{ reader, relay1, relay2, input, monitor }; // off: reaching 1/2 FS / on: falling below 1/8 FS
 
     const char * err = nullptr;
     if (! input.Init())
         err = "input";
-    else if (! reader.Init( 1/*sec store/report interval*/, 8/*meas. avg. calc.*/, 10/*Hz avg. meas. freq.*/, 60/*values to store*/ ))
+    else if (! reader.Init( 1/*sec store/report interval*/, 8/*meas. avg. calc.*/, 10/*Hz avg. meas. freq.*/, 600/*values to store*/ ))
         err = "reader";
     else if (! temperator.Start())
         err = "temperator";

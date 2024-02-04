@@ -1,8 +1,5 @@
 /*
  * Updator.h
- *
- *  Created on: 19.05.2020
- *      Author: holger
  */
 
 #ifndef MAIN_UPDATOR_H_

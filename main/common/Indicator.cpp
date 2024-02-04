@@ -1,8 +1,5 @@
 /*
  * Indicator.cpp
- *
- *  Created on: 19.05.2020
- *      Author: holger
  */
 
 #include "Indicator.h"
@@ -11,19 +8,20 @@
 
 const char *const TAG = "Indicator";
 
+namespace
+{
+TickType_t now()
+{
+    return xTaskGetTickCount();
+}
+}
+
 extern "C" void IndicatorTask( void * indicator )
 {
     ((Indicator*) indicator)->Run();
 }
 
-Indicator::Indicator() :
-        mPinPrimary { GPIO_NUM_MAX },
-        mPinSecondary{ GPIO_NUM_MAX },
-        mBlink { 0 },
-        mBlinkSecondary { 0 },
-        mSigMask { 0 },
-        mTaskHandle { 0 },
-        mSemaphore { 0 }
+Indicator::Indicator()
 {
 }
 
@@ -31,28 +29,31 @@ static Indicator s_indicator{};
 
 Indicator& Indicator::Instance()
 {
+    // app will crash when using instance pattern:
+    // static Indicator inst{};
+    // return inst;
     return s_indicator;
 }
 
 bool Indicator::Init( gpio_num_t pinPrimary, gpio_num_t pinSecondary ) 
 {
-    mPinPrimary = pinPrimary;
-    mPinSecondary = pinSecondary;
+    mPin[0] = pinPrimary;
+    mPin[1] = pinSecondary;
 
     gpio_config_t io_conf;
 
-    io_conf.pin_bit_mask = (1 << mPinPrimary);
-    if (mPinSecondary < GPIO_NUM_MAX)
-        io_conf.pin_bit_mask |= (1 << mPinSecondary);
+    io_conf.pin_bit_mask = (1 << mPin[0]);
+    if (mPin[1] < GPIO_NUM_MAX)
+        io_conf.pin_bit_mask |= (1 << mPin[1]);
     io_conf.mode = GPIO_MODE_OUTPUT;       // set as output mode
     io_conf.pull_up_en = GPIO_PULLUP_DISABLE;    // disable pull-up mode
     io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;  // disable pull-down mode
     io_conf.intr_type = GPIO_INTR_DISABLE;      // disable interrupt
 
     gpio_config( &io_conf );    // configure GPIO with the given settings
-    gpio_set_level( mPinPrimary, 0 );   // low active - switch on
-    if (mPinSecondary < GPIO_NUM_MAX)
-        gpio_set_level( mPinSecondary, 0 );   // low active - switch on
+    gpio_set_level( mPin[0], 0 );   // low active - switch on
+    if (mPin[1] < GPIO_NUM_MAX)
+        gpio_set_level( mPin[1], 0 );   // low active - switch on
 
     mSemaphore = xSemaphoreCreateBinary( );
     xTaskCreate( IndicatorTask, "Indicator", /*stack size*/1024, this,
@@ -72,7 +73,7 @@ bool Indicator::Init( gpio_num_t pinPrimary, gpio_num_t pinSecondary )
 
 void Indicator::Indicate( Indicator::STATUS status )
 {
-    long sigMask = 0;
+    unsigned long sigMask = 0;
     switch (status) {
     case STATUS_ERROR:      // ##########_##_##_##_
         sigMask = 0x1212121a;
@@ -83,8 +84,8 @@ void Indicator::Indicate( Indicator::STATUS status )
     case STATUS_CONNECT:    // #########_#########_
         sigMask = 0x19;
         break;
-    case STATUS_IDLE:       // #_________#_________
-        sigMask = 0x91;
+    case STATUS_IDLE:       // #___________________
+        sigMask = 0xa091;
         break;
     case STATUS_ACTIVE:     // ##########__________
         sigMask = 0xaa;
@@ -93,90 +94,148 @@ void Indicator::Indicate( Indicator::STATUS status )
     SigMask( sigMask );
 }
 
-void Indicator::SigMask( unsigned long sigMask )
+void Indicator::SigMask( unsigned long priSigMask, unsigned long secSigMask )
 {
-    mBlink = 0;
-    if (mSigMask == sigMask)
+    if ((mSigMask[0] == priSigMask) && (mSigMask[1] == secSigMask))
         return;
-    mSigMask = sigMask;
+    mBlink[0] = mBlink[1] = 0;
+    mSigMask[0] = priSigMask;
+    mSigMask[1] = secSigMask;
+    for (uint8_t pin = 0; pin < 2; ++pin) {
+        if (mSigMask[pin] <= 1)
+            continue;
+        uint8_t slots = 0;
+        for (unsigned long mask = mSigMask[pin]; mask; mask >>= 4)
+            slots += (mask & 0xf);
+        mSigSlots[pin] = slots;
+    }
+    mSigStart = now();
     xSemaphoreGive( mSemaphore );
 }
 
-void Indicator::Blink( uint8_t num )
+void Indicator::Blink( uint8_t numPri, uint8_t numSec )
 {
-    mBlink = num;
+    mBlink[0] = numPri;
+    mBlink[1] = numSec;
     xSemaphoreGive( mSemaphore );
 }
 
 void Indicator::Steady( uint8_t on )
 {
-    mBlink = 0;
-    mSigMask = on ? 1 : 0;
+    mBlink[0] = on ? 0xff : 0;
     xSemaphoreGive( mSemaphore );
 }
 
 void Indicator::Access( uint8_t ok )
 {
     if (ok) {
-        mBlinkSecondary = 1;
+        mBlink[1] = 1;  // pass -> 1x green
     } else {
-        mBlink = 2;
+        mBlink[0] = 2;  // fail -> 2x red
     }
+    xSemaphoreGive( mSemaphore );
+}
+
+void Indicator::Pause( bool pause )
+{
+    mPause = pause;
     xSemaphoreGive( mSemaphore );
 }
 
 void Indicator::Run()
 {
-    if (mPinSecondary < GPIO_NUM_MAX)
-        gpio_set_level( mPinSecondary, 1 );  // low active - switch off
+    enum {
+        SLOT_TICKS      = configTICK_RATE_HZ / 10,  // 0.1 secs
+        SLOT_TICKS_HALF = SLOT_TICKS / 2,           // to round
+    };
 
-    int           phase   = 0;
-    unsigned long sigMask = 0;
+    if (mPin[1] < GPIO_NUM_MAX)
+        gpio_set_level( mPin[1], 1 );  // low active - switch off
+
+    uint8_t       blinking = 0;
+    uint8_t       sigSlots[2];
+    unsigned long sigMask[2];
 
     while (true) {
-        if (mBlinkSecondary && (mPinSecondary < GPIO_NUM_MAX)) {
-            gpio_set_level( mPinSecondary, 0 );
-            vTaskDelay( configTICK_RATE_HZ / 4 );
-            gpio_set_level( mPinSecondary, 1 );
-            while (--mBlinkSecondary) {
-                vTaskDelay( configTICK_RATE_HZ / 8 );
-                gpio_set_level( mPinSecondary, 0 );
-                vTaskDelay( configTICK_RATE_HZ / 4 );
-                gpio_set_level( mPinSecondary, 1 );
+        if (mPause) {
+            if (mPin[1] < GPIO_NUM_MAX)
+                gpio_set_level( mPin[1], 1 );
+            do {
+                xSemaphoreTake( mSemaphore, portMAX_DELAY );
+            } while (mPause);
+        }
+
+        for (int pin = 0; pin < 2; ++pin) {
+            sigMask[pin]  = mSigMask[pin];
+            sigSlots[pin] = mSigSlots[pin];
+        }
+        {
+            uint8_t newBlinking = 0;
+            for (int pin = 0; pin < 2; ++pin) {
+                if (mBlink[pin]) {
+                    newBlinking |= 1 << pin;
+                    if (mBlink[pin] == 0xff)
+                        sigMask[pin] = 1;
+                    else {
+                        sigMask[pin] = 0x12;  // 2 slots on / 1 slot off
+                        sigSlots[pin] = 3;
+                    }
+                }
+            }
+            if (blinking != newBlinking) {
+                blinking  = newBlinking;
+                mSigStart = now();
             }
         }
-        if (mBlink) {
-            do {
-                gpio_set_level( mPinPrimary, 0 );
-                vTaskDelay( configTICK_RATE_HZ / 16 );
-                gpio_set_level( mPinPrimary, 1 );
-                vTaskDelay( configTICK_RATE_HZ / 16 );
-            } while (--mBlink);
-            vTaskDelay( configTICK_RATE_HZ / 16 );
-            sigMask = 0;
-        }
 
-        if (mSigMask == 1) {
-            gpio_set_level( mPinPrimary, 0 );   // low active - switch on
+        uint8_t minSlots2wait = 0xff;  // = no timeout
+
+        TickType_t diff = now() - mSigStart;
+        TickType_t slot = (diff + SLOT_TICKS_HALF) / SLOT_TICKS;
+
+        for (int pin = 0; pin < 2; ++pin) {
+            if (mPin[pin] >= GPIO_NUM_MAX)
+                continue;
+
+            if (sigMask[pin] == 0) {
+                gpio_set_level( mPin[pin], 1 );   // low active - switch off
+                continue;
+            }
+            if (sigMask[pin] == 1) {
+                gpio_set_level( mPin[pin], 0 );   // low active - switch on
+                continue;
+            }
+
+            uint8_t pSlot = (uint8_t) (slot % sigSlots[pin]);
+            unsigned long mask = sigMask[pin];
+            int next = mask & 0xf;
+            int phase = 0;
+            while (next <= pSlot) {
+                mask >>= 4;
+                next += (mask & 0xf);
+                ++phase;
+                if (! mask) {  // should not happen!
+                    phase = 1;
+                    next = sigSlots[pin];
+                    break;
+                }
+            }
+
+            gpio_set_level( mPin[pin], phase & 1 );
+
+            if (phase && mBlink[pin] && (mBlink[pin] != 0xff))
+                --(mBlink[pin]);
+
+            // if (next > pSlot) {
+            uint8_t slots2wait = (next - pSlot);
+            if (minSlots2wait > slots2wait)
+                minSlots2wait = slots2wait;
+            // } else
+            //     minSlots2wait = 1;  // should not happen - just for safety
+        }
+        if (minSlots2wait == 0xff)
             xSemaphoreTake( mSemaphore, portMAX_DELAY );
-            sigMask = 0;
-            continue;
-        }
-        if (mSigMask == 0) {
-            gpio_set_level( mPinPrimary, 1 );   // low active - switch off
-            xSemaphoreTake( mSemaphore, portMAX_DELAY );
-            sigMask = 0;
-            continue;
-        }
-
-        if (! sigMask) {
-            sigMask = mSigMask;
-            phase = 0;
-        }
-        gpio_set_level( mPinPrimary, phase & 1 );  // low active!
-        xSemaphoreTake( mSemaphore, ((sigMask & 0xf) * configTICK_RATE_HZ) / 10 );
-
-        sigMask >>= 4;
-        ++phase;
+        else
+            xSemaphoreTake( mSemaphore, ((TickType_t) minSlots2wait) * SLOT_TICKS );
     }
 }

@@ -2,9 +2,6 @@
  * Analog.h
  *
  * Read analog pin in independant thread and support methods to read latest values
- *
- *  Created on: 06.05.2020
- *      Author: galuschka
  */
 
 #ifndef MAIN_ANALOGREADER_H_

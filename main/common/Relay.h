@@ -1,8 +1,5 @@
 /*
  * Relay.h
- *
- *  Created on: 19.05.2020
- *      Author: galuschka
  */
 
 #ifndef MAIN_RELAY_H_

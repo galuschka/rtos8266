@@ -12,17 +12,16 @@
 
 #include "HttpHelper.h"
 #include "Wifi.h"
+#include "WebServer.h"
 
 namespace {
 const char * TAG = "HttpHelper";
 }
 
-HttpHelper::HttpHelper( httpd_req_t * req, const char * subheader ) : mReq {req}, mSubheader {subheader ? subheader : ""}
-{
-    mBuf.reserve(1024);
-}
-
-HttpHelper::HttpHelper( httpd_req_t * req, std::string subheader ) : mReq {req}, mSubheader {subheader}
+HttpHelper::HttpHelper( httpd_req_t * req, const char * h2text, const char * navitext )
+    : mReq      { req }
+    , mH2Text   { h2text }
+    , mNaviText { navitext }
 {
     mBuf.reserve(1024);
 }
@@ -46,32 +45,86 @@ void HttpHelper::Head( const char * meta )
     mInHead = true;
     Add( "<!DOCTYPE html>\n"
          "<html>\n"
-         " <head><meta charset=\"utf-8\"/>" );
+         " <head><meta charset=\"utf-8\"/>\n" );
     if (meta)
         Add( meta );
+    Add( "\n\
+  <style>\n\
+   h1 { float: left; }\n\
+   ul { list-style-type: none; }\n\
+   li {\n\
+    float: left;\n\
+    display: block;\n\
+    min-height: 48px;\n\
+   }\n\
+   li a {\n\
+    padding: 8px;\n\
+    margin: 8px;\n\
+    border: 2px;\n\
+    border-radius: 5px;\n\
+    border-color: #ee4;\n\
+    background-color: #ee4;\n\
+   }\n\
+   li a:hover:not(.active) {\n\
+    border-color: #008;\n\
+    background-color: #008;\n\
+    color: #fff;\n\
+   }\n\
+   li a.active {\n\
+    border-color: #088;\n\
+    background-color: #088;\n\
+    color: #fff;        \n\
+    text-decoration: none;\n\
+   }\n\
+  </style>\n" );
 
     const char * host = Wifi::Instance().GetHost();
 
     Add( "  <title>" );
     Add( host );
-    if (mSubheader.length()) {
-        Add( " - " );
-        Add( mSubheader );
+    if (mNaviText) {
+        Add( "-" );
+        Add( mNaviText );
+    } else if (mH2Text) {
+        Add( "-" );
+        Add( mH2Text );
     }
-    Add( "</title>\n"
-         " </head>\n"
-         " <body>\n" );
-    if (mSubheader.length()) {
-        Add( "  <h1><a href=\"/\">" );
-        Add( host );
-        Add( "</a></h1>\n  <h2>" );
-        Add( mSubheader );
-        Add( "  </h2>\n" );
-    } else {
-        Add( "  <h1>" );
-        Add( host );
-        Add( "</h1>\n" );
+    {
+        const char * const color = Wifi::Instance().GetBgCol();
+        Add( "</title>\n"
+            " </head>\n"
+            " <body style=\"background-color:" );
+        if (color && *color)
+            Add( color );
+        else
+            Add( "lightblue" );
+        Add( ";\">\n" );
     }
+    Add( "  <h1>" );
+    Add( host );
+    Add( "</h1>\n" );
+    Add( "  <div style=\"float: right;\">" );
+    Add( "   <ul>\n" );
+    for (WebServer::PageList const * pagelist = WebServer::Instance().GetPageList();
+            pagelist;
+            pagelist = pagelist->Next)
+    {
+        if (! pagelist->Page.NaviText)  // "hidden"
+            continue;
+        Add( (std::string) "   <li><a href=\"" + pagelist->Page.Uri.uri + "\"" );
+        if (mNaviText && (strcmp( mNaviText, pagelist->Page.NaviText ) == 0))
+            Add( " class=\"active\"" );
+        Add( (std::string) ">" + pagelist->Page.NaviText + "</a></li>\n" );
+    }
+    Add( "   </ul>\n" );
+    Add( "  </div>" );
+    Add( "  <div style=\"clear: both\"></div>\n" );
+    if (mH2Text) {
+        Add( "  <h2>" );
+        Add( mH2Text );
+        Add( "</h2>\n" );
+    }
+
     mInHead = false;
 }
 
@@ -106,6 +159,20 @@ std::string HttpHelper::String( long val, int minLength )
     } while ((val || (minLength > 0)) && (bp > minus));
     if (minus > buf)
         *--bp = '-';
+    return std::string( bp );
+}
+
+std::string HttpHelper::String( uint32_t val, int minLength )
+{
+    ESP_LOGD( TAG, "stringify uint %u", val );
+    char buf[12];
+    char * bp = & buf[sizeof(buf)-1];
+    *bp = 0;
+    do {
+        --minLength;
+        *--bp = (val % 10) + '0';
+        val /= 10;
+    } while ((val || (minLength > 0)) && (bp > buf));
     return std::string( bp );
 }
 

@@ -1,8 +1,5 @@
 /*
  * Monitor.h
- *
- *  Created on: 06.05.2020
- *      Author: holger
  */
 
 #ifndef MAIN_MONITOR_H_
@@ -20,9 +17,16 @@ public:
     Monitor( AnalogReader & analog );
     ~Monitor();
 
+    void SetThres( value_t off, value_t on ) {
+        ThresOff = off;
+        ThresOn  = on;
+    };
+
     void Show( struct httpd_req * req ) const;
 private:
-    AnalogReader &Reader;
+    AnalogReader & Reader;
+    value_t        ThresOff { 0x8000 };
+    value_t        ThresOn  { 0x8000 };
 };
 
 #endif /* MAIN_MONITOR_H_ */

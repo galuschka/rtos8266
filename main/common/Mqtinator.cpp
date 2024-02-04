@@ -1,8 +1,5 @@
 /*
  * Mqtinator.cpp
- *
- *  Created on: 26.02.2022
- *      Author: galuschka
  */
 
 //define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
@@ -370,8 +367,8 @@ void Mqtinator::CbSubData( void * arg, const u8_t * data, u16_t len, u8_t flags 
     memcpy( start, data, thislen );
     mInReadLen += len;  // beyond end, we just increase mInReadLen, until complete
     if (mInReadLen == mInLen) {
+        start[thislen] = 0;  // string terminator to be set on last read
         mDataComplete = true;
-        *end = 0;
         xSemaphoreGive( mSemaphore );
     }
 }

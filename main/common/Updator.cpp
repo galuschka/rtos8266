@@ -1,13 +1,10 @@
 /*
  * Updator.cpp
- *
- *  Created on: 29.04.2020
- *      Author: galuschka
  */
-
 //define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 
 #include "Updator.h"
+#include "Indicator.h"
 
 #include <string.h>             // memset()
 
@@ -55,7 +52,7 @@ bool Updator::Init()
         const esp_partition_t* running = esp_ota_get_running_partition();
         const esp_partition_t* otadata = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, NULL);
 
-        uint8_t n = get_ota_partition_count();
+        const uint8_t n = get_ota_partition_count();
         for (uint8_t i = 0; i < 2; ++i) {
             esp_ota_select_entry_t s;
             if (spi_flash_read(otadata->address + ((int) i * SPI_FLASH_SEC_SIZE), &s, sizeof(esp_ota_select_entry_t)) == ESP_OK) {
@@ -68,6 +65,19 @@ bool Updator::Init()
                     && ((s.ota_seq % n) == (running->subtype & PART_SUBTYPE_OTA_MASK))) {
                     ESP_LOGI( TAG, "test of ota image %d in progress - set progress to \"test to be confirmed\"", s.ota_seq % n );
                     mProgress = 95; // to confirm
+                    if (s.seq_label[0] == 0xff) {  // label not yet written
+                        const esp_app_desc_t *const desc = esp_ota_get_app_description();
+                        memcpy( & s.seq_label[0], desc->project_name, 3 );
+                        memset( & s.seq_label[strnlen( desc->project_name, 3 )], '-', 4 );
+                        size_t len = strnlen( desc->version, sizeof(desc->version) );
+                        if (len > (sizeof(s.seq_label) - 5))
+                            len = (sizeof(s.seq_label) - 5);
+                        memcpy( & s.seq_label[4], desc->version, len );
+                        s.seq_label[4+len] = 0;
+                        // ESP_LOGD( TAG, "proj./vers. %s/%s -> label: %s", desc->project_name, desc->version, s.seq_label );
+                        spi_flash_write( otadata->address + ((int) i * SPI_FLASH_SEC_SIZE) + offsetof(esp_ota_select_entry_t,seq_label),
+                                         &s.seq_label[0], sizeof(s.seq_label) );
+                    }
                     return true;
                 }
             }
@@ -146,7 +156,7 @@ bool Updator::Confirm( void )
         const esp_partition_t* running = esp_ota_get_running_partition();
         const esp_partition_t* otadata = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, NULL);
 
-        uint8_t n = get_ota_partition_count();
+        const uint8_t n = get_ota_partition_count();
         for (uint8_t i = 0; i < 2; ++i) {
             esp_ota_select_entry_t s;
             if (spi_flash_read(otadata->address + ((int) i * SPI_FLASH_SEC_SIZE), &s, sizeof(esp_ota_select_entry_t)) == ESP_OK) {
@@ -162,14 +172,15 @@ bool Updator::Confirm( void )
                     ESP_LOGI( TAG, "successful test confirmation - set test_stage \"passed\" and progress \"ready\"" );
                     s.test_stage >>= 2;  // in difference to testing -> failed (>>=1) we shift by 2: testing -> passed
                     spi_flash_write( otadata->address + ((int) i * SPI_FLASH_SEC_SIZE) + offsetof(esp_ota_select_entry_t,test_stage),
-                                     &s.test_stage, sizeof(s.test_stage) );
+                                        &s.test_stage, sizeof(s.test_stage) );
                     mProgress = 100;
+                    return true;
                 }
             }
         }
     }
     if (mProgress != 100) {
-        mMsg = "no testing image anymore in otadata partition";
+        mMsg = "active partition not in testing stage (internal error)";
         mProgress = 99;  // failed
     }
     return true;
@@ -182,8 +193,10 @@ void Updator::Run( void )
         if (mProgress == 1) {
             mProgress = 2;
             mMsg = "start update";
+            Indicator::Instance().Pause(true);
             Update();
         } else if (mProgress == 96) {
+            Indicator::Instance().Pause(false);
             mProgress = 97;
             mMsg = "manifest new image";
             // TODO: mark stable

@@ -44,10 +44,63 @@ static const unsigned char s_col[] = {  5, 4, 0 };
 
 static const char *TAG = "keypad";
 
-extern "C" void OnFlash( const char * topic, const char * data )
+extern "C" {
+
+unsigned long atoul( const char * str, const char ** end )
+{
+    unsigned long ret = 0;
+    while (*str == ' ') ++str;
+    if (*str != '0') {
+        while ((*str >= '0') && (*str <= '9')) {
+            ret *= 10;
+            ret += *str++ & 0xf;
+        }
+    } else if (*++str == 'x') {
+        for (char x = *++str | 0x20;  // upper case -> lower case
+                ((x >= '0') && (x <= '9')) || ((x >= 'a') && (x <= 'f'));
+                    x = *++str | 0x20) {
+            ret <<= 4;
+            ret |= (x + (((x >> 6) & 1) * (0x6a - 'a'))) & 0xf;
+        }
+    } else {
+        while ((*str >= '0') && (*str <= '7')) {
+            ret <<= 3;
+            ret |= *str++ & 7;
+        }
+    }
+    if (end)
+        *end = str;
+    return ret;
+}
+
+void OnFlash( const char * topic, const char * data )
 {
     ESP_LOGD( TAG, "got \"%s\" \"%s\"", topic, data );
     Indicator::Instance().Access( *data & 1 );
+}
+
+void OnBlink( const char * topic, const char * data )
+{
+    ESP_LOGD( TAG, "got \"%s\" \"%s\"", topic, data );
+    const char * end = 0;
+    unsigned long pri, sec = 0;
+    pri = atoul( data, & end );
+    if (end)
+        sec = atoul( end, 0 );
+    Indicator::Instance().Blink( (uint8_t) (pri & 0xff), (uint8_t) (sec & 0xff) );
+}
+
+void OnSignal( const char * topic, const char * data )
+{
+    ESP_LOGD( TAG, "got \"%s\" \"%s\"", topic, data );
+    const char * end = 0;
+    unsigned long priSigMask, secSigMask = 0;
+    priSigMask = atoul( data, & end );
+    if (end)
+        secSigMask = atoul( end, 0 );
+    Indicator::Instance().SigMask( priSigMask, secSigMask );
+}
+
 }
 
 void main_nvs_init()
@@ -92,7 +145,8 @@ extern "C" void app_main()
     Mqtinator & mqtinator = Mqtinator::Instance();
     mqtinator.Init();
     mqtinator.Sub( "flash", & OnFlash );
-
+    mqtinator.Sub( "blink", & OnBlink );
+    mqtinator.Sub( "signal", & OnSignal );
 
     ESP_LOGD( TAG, "WebServer..." ); EXPRD(vTaskDelay(1))
     WebServer::Instance().Init();

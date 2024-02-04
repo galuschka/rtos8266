@@ -1,8 +1,5 @@
 /*
  * WebServer.h
- *
- *  Created on: 29.04.2020
- *      Author: galuschka
  */
 
 #ifndef MAIN_WEBSERVER_H_
@@ -17,14 +14,13 @@ public:
     struct Page
     {
         const httpd_uri_t &Uri;
-        const char *LinkText;
+        const char *NaviText;
 
-        Page( const httpd_uri_t & uri, const char * text ) :
-                Uri { uri }, LinkText { text }
+        Page( const httpd_uri_t & uri, const char * navitext ) :
+                Uri { uri }, NaviText { navitext }
         {
         }
     };
-private:
     struct PageList
     {
         const WebServer::Page &Page;
@@ -35,13 +31,14 @@ private:
         {
         }
     };
-public:
+
     WebServer() {};
     static WebServer& Instance();
 
     void Init();
     void AddPage( const Page & page, const httpd_uri_t * postUri = 0 );
     void MainPage( httpd_req_t * req );
+    PageList const * GetPageList() { return mAnchor; }
 
 private:
     httpd_handle_t mServer  { 0 };

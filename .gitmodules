@@ -4,3 +4,6 @@
 [submodule "esp-open-rtos"]
 	path = esp-open-rtos
 	url = github:SuperHouse/esp-open-rtos
+[submodule "main/smiffer/sml"]
+	path = main/smiffer/sml
+	url = github:galuschka/sml

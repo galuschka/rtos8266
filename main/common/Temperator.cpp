@@ -54,7 +54,7 @@ extern "C" esp_err_t post_temperator_config( httpd_req_t * req )
 namespace {
 const httpd_uri_t s_get_uri   = { .uri = s_subpage, .method = HTTP_GET,  .handler = get_temperator_config,  .user_ctx = 0 };
 const httpd_uri_t s_post_uri  = { .uri = s_subpage, .method = HTTP_POST, .handler = post_temperator_config, .user_ctx = 0 };
-const WebServer::Page s_page    { s_get_uri, "Configure temperator settings" };
+const WebServer::Page s_page    { s_get_uri, "Temperature" };
 }
 
 Temperator::Temperator( gpio_num_t pin ) : mPin{ pin }
@@ -80,7 +80,7 @@ void Temperator::Rescan()
 
 void Temperator::Setup( httpd_req_t * req, bool post )
 {
-    HttpHelper hh{ req, "Temperator settings" };
+    HttpHelper hh{ req, "Configure temperature sensors settings", "Temperature" };
 
     uint8_t const n = mDevInfo.size() < MaxDevStored ? mDevInfo.size() : MaxDevStored;
 

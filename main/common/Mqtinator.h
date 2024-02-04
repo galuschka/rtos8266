@@ -1,8 +1,5 @@
 /*
  * Mqtinator.h
- *
- *  Created on: 26.02.2022
- *      Author: galuschka
  */
 
 #include <stdint.h>

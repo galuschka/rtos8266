@@ -19,6 +19,7 @@
 #include "AnalogReader.h"
 #include "Relay.h"
 #include "Input.h"
+#include "Monitor.h"
 #include "Indicator.h"
 #include "Mqtinator.h"
 
@@ -29,6 +30,8 @@
 #include "Wifi.h"
 
 const char * const TAG = "Control";
+
+const char * const Control::mModeName[] { MODE_NAMES };
 
 extern "C" esp_err_t get_config( httpd_req_t * req );
 extern "C" esp_err_t post_config( httpd_req_t * req );
@@ -59,7 +62,7 @@ bool expired( TickType_t exp )
 
 const httpd_uri_t s_get_uri   = { .uri = "/switchctrl", .method = HTTP_GET,  .handler = get_config,  .user_ctx = 0 };
 const httpd_uri_t s_post_uri  = { .uri = "/switchctrl", .method = HTTP_POST, .handler = post_config, .user_ctx = 0 };
-const WebServer::Page s_page    { s_get_uri, "Configure switching thresholds" };
+const WebServer::Page s_page    { s_get_uri, "Control" };
 
 const char *s_keyPwrOnMode = "pwrOnMode"; // to save the mode beyond reboot
 const char *s_keyThresOff  = "thresOff";
@@ -67,6 +70,8 @@ const char *s_keyThresOn   = "thresOn";
 const char *s_keyMinOff    = "minOff";    // even when to switch on: stay off for ... secs
 const char *s_keyMinOn     = "minOn";     // safety switch off, when thresOff reached faster
 const char *s_keyMaxOn     = "maxOn";     // pause
+const char *s_keyValRgMin  = "valRgMin";  // when measurement value < valRgMin -> sensor error
+const char *s_keyValRgMax  = "valRgMax";  // when measurement value > valRgMax -> sensor error
 const char *s_keyValueTol  = "valueTol";  // tolerance to publish new value
 const char *s_keyValueIdx  = "valueIdx";  // device index to publish value
 const char *s_keyModeIdx   = "modeIdx";   // where to publish the mode
@@ -116,11 +121,12 @@ void on_subscribe( const char * topic, const char * data )
 
 }
 
-Control::Control( AnalogReader & reader, Relay & relay1, Relay & relay2, Input & input )
+Control::Control( AnalogReader & reader, Relay & relay1, Relay & relay2, Input & input, Monitor & monitor )
                 : mReader        { reader },
                   mRelay1        { relay1 },
                   mRelay2        { relay2 },
-                  mInput         { input }
+                  mInput         { input },
+                  mMonitor       { monitor }
 {
     if (1 || Wifi::Instance().StationMode()) {
         s_control = this;
@@ -137,6 +143,7 @@ void Control::Temperature( uint16_t idx, float temperature )
 {
     if ((idx == mTempIdx) && (temperature >= mTempMax)) {
         SafetyOff( MODE_OVERHEAT );
+        Notify( EV_MODECHANGED );
     }
 }
 
@@ -154,7 +161,6 @@ void Control::SafetyOff( uint8_t newMode )
         mRelay2.SetMode( Relay::MODE_OFF );
         mMode = newMode;
         ESP_LOGW( TAG, "safety switch off into mode %d", newMode );
-        Notify( EV_MODECHANGED );
     }
 }
 
@@ -254,6 +260,7 @@ void Control::Run( Indicator & indicator )
 {
     indicator.Indicate( Indicator::STATUS_IDLE );
     ReadParam();   // mMode will be set according pwrOnMode
+    mMonitor.SetThres( mThresOff, mThresOn );
 
     TickType_t exp    = 0;      // expiration to change mode by time
     TickType_t expMin = 0;      // minOn / minOff check (set on auto switching)
@@ -281,15 +288,18 @@ void Control::Run( Indicator & indicator )
 
     while (true)
     {
+        ++mLoopCnt;
         if (! mEvents) {
-            if (! exp)
+            if (! exp) {
                 xSemaphoreTake( mSemaphore, portMAX_DELAY );
-            else {
+                ++mDelayCnt;
+            } else {
                 long diff = exp - now();
                 if (diff <= 0)
                     mEvents |= EV_EXPIRATION;
                 else {
                     xSemaphoreTake( mSemaphore, diff );
+                    ++mDelayCnt;
                     long diff = exp - now();
                     if (diff <= 0)
                         mEvents |= EV_EXPIRATION;
@@ -300,10 +310,30 @@ void Control::Run( Indicator & indicator )
         bool pubVal      = false;
         bool forcePubVal = false;
 
-        if (mEvents & EV_NEWVALUE) {
-            mEvents &= ~EV_NEWVALUE;
-            pubVal = true;
+        do {
+            if (! (mEvents & EV_NEWVALUE))
+                break;
 
+            mEvents &= ~EV_NEWVALUE;
+
+            if (mValue == AnalogReader::INV_VALUE) {
+                if (mInvValCnt)
+                    --mInvValCnt;
+                if (! mInvValCnt) {
+                    pubVal = forcePubVal = mMode != MODE_VALUE_OOR;
+                    SafetyOff( MODE_NOVALUE );
+                }
+                break;
+            }
+            mInvValCnt = 3;  // restart count down
+
+            if ((mValue < mValRange[0]) || (mValue > mValRange[1])) {
+                pubVal = forcePubVal = mMode != MODE_VALUE_OOR;
+                SafetyOff( MODE_VALUE_OOR );
+                break;
+            }
+
+            pubVal = true;
             if (autoOn) {
                 bool toSwitch = false;
                 if (mThresOff > mThresOn)
@@ -314,7 +344,7 @@ void Control::Run( Indicator & indicator )
                 if (toSwitch) {
                     autoOn = false;
                     mRelay2.AutoOn( autoOn );
-                    if (mode == MODE_AUTO_ON) {
+                    if ((mode == MODE_AUTO_ON) && ! MODE_SAFETY_OFF(mMode)) {
                         mMode = MODE_AUTO_OFF;
                         vTaskDelay( configTICK_RATE_HZ / 4 );
                         if (expMin) {
@@ -339,16 +369,12 @@ void Control::Run( Indicator & indicator )
                 if (toSwitch) {
                     if ((mode == MODE_AUTO_OFF) && expMin) {
                         long tim = now() - expMin;
-                        if (tim < 0) {             // we would switch on before expMin
-                            mMode = MODE_FASTON;   // too fast to switch on again
-                            toSwitch = false;      // prevent to again change mMode
-                            mRelay2.SetMode( Relay::MODE_OFF );  // prevent mRelayX.AutoOn() to switch on
-                            mRelay1.SetMode( Relay::MODE_OFF );  // prevent mRelayX.AutoOn() to switch on
-                        }
+                        if (tim < 0)                    // we would switch on before expMin
+                            SafetyOff( MODE_FASTON );   // too fast to switch on again
                     }
                     autoOn = true;  // auto off/on continues
                     mRelay1.AutoOn( autoOn );
-                    if ((mode == MODE_AUTO_OFF) && toSwitch) {
+                    if ((mode == MODE_AUTO_OFF) && ! MODE_SAFETY_OFF(mMode)) {
                         mMode = MODE_AUTO_ON;
                         vTaskDelay( configTICK_RATE_HZ / 4 );
                         // exp = expiration( mMaxOnTicks );  ** set for any mode transition to MODE_AUTO_ON
@@ -358,7 +384,7 @@ void Control::Run( Indicator & indicator )
                     forcePubVal = true;
                 }
             }
-        }
+        } while (0);
 
         if (mEvents & EV_EXPIRATION) {
             mEvents &= ~EV_EXPIRATION;
@@ -445,11 +471,11 @@ void Control::Run( Indicator & indicator )
                 mode = mMode;
                 switch (mode) {
                     case MODE_AUTO_OFF:
-                        indicator.Indicate( Indicator::STATUS_IDLE );       // #_________#_________
+                        indicator.Indicate( Indicator::STATUS_IDLE );       // #___________________
                         break;
                     case MODE_AUTO_ON:
                         exp = expiration( mMaxOnTicks );
-                        indicator.Indicate( Indicator::STATUS_ACTIVE );     // #####_____#####_____
+                        indicator.Indicate( Indicator::STATUS_ACTIVE );     // ##########__________
                         break;
                     case MODE_FASTON:
                         indicator.SigMask( 0x6167 );                        // #######______#______
@@ -496,6 +522,10 @@ void Control::ReadParam()
                 mThresOff = val;
             if (nvs_get_u16( my_handle, s_keyThresOn, & val ) == ESP_OK)
                 mThresOn = val;
+            if (nvs_get_u16( my_handle, s_keyValRgMin, & val ) == ESP_OK)
+                mValRange[0] = val;
+            if (nvs_get_u16( my_handle, s_keyValRgMax, & val ) == ESP_OK)
+                mValRange[1] = val;
             if (nvs_get_u16( my_handle, s_keyValueTol, & val ) == ESP_OK)
                 mValueTol = val;
             if (nvs_get_u16( my_handle, s_keyValueIdx, & val ) == ESP_OK)
@@ -563,6 +593,8 @@ void Control::WriteParam()
         SetU32( my_handle, s_keyMinOff,   mMinOffTicks );
         SetU32( my_handle, s_keyMinOn,    mMinOnTicks );
         SetU32( my_handle, s_keyMaxOn,    mMaxOnTicks );
+        SetU16( my_handle, s_keyValRgMin, mValRange[0] );
+        SetU16( my_handle, s_keyValRgMax, mValRange[1] );
         SetU16( my_handle, s_keyValueTol, mValueTol );
         SetU16( my_handle, s_keyValueIdx, mValueIdx );
         SetU16( my_handle, s_keyModeIdx,  mModeIdx );
@@ -605,11 +637,21 @@ std::string InputField( const char * key, long min, long max, long val )
     return str;
 }
 
+long value2percent( long val )
+{
+    return (val * 100 + AnalogReader::HALF_VALUES) / AnalogReader::NOF_VALUES;
+}
+
+Control::value_t percent2value( long perc )
+{
+    return (Control::value_t) ((perc * AnalogReader::NOF_VALUES + 50) / 100);
+}
+
 }
 
 void Control::Setup( struct httpd_req * req, bool post )
 {
-    HttpHelper hh{ req, "Switch control" };
+    HttpHelper hh{ req, "Configure switching thresholds", "Control" };
 
     if (post) {
         {
@@ -618,6 +660,8 @@ void Control::Setup( struct httpd_req * req, bool post )
             char bufMinOff[4];
             char bufMinOn[4];
             char bufMaxOn[8];
+            char bufValRgMin[4];
+            char bufValRgMax[4];
             char bufValueTol[4];
             char bufValueIdx[6];
             char bufModeIdx[6];
@@ -628,8 +672,10 @@ void Control::Setup( struct httpd_req * req, bool post )
                                        { s_keyMinOff,   bufMinOff,   sizeof(bufMinOff)   },
                                        { s_keyMinOn,    bufMinOn,    sizeof(bufMinOn)    },
                                        { s_keyMaxOn,    bufMaxOn,    sizeof(bufMaxOn)    },
-                                       { s_keyValueTol, bufValueTol, sizeof(bufValueTol)  },
-                                       { s_keyValueIdx, bufValueIdx, sizeof(bufValueIdx)  },
+                                       { s_keyValRgMin, bufValRgMin, sizeof(bufValRgMin) },
+                                       { s_keyValRgMax, bufValRgMax, sizeof(bufValRgMax) },
+                                       { s_keyValueTol, bufValueTol, sizeof(bufValueTol) },
+                                       { s_keyValueIdx, bufValueIdx, sizeof(bufValueIdx) },
                                        { s_keyModeIdx,  bufModeIdx,  sizeof(bufModeIdx)  },
                                        { s_keyTempIdx,  bufTempIdx,  sizeof(bufTempIdx)  },
                                        { s_keyTempMax,  bufTempMax,  sizeof(bufTempMax)  } };
@@ -640,60 +686,84 @@ void Control::Setup( struct httpd_req * req, bool post )
                 return;
             }
 
-            mThresOff    = (value_t) ((strtoul( bufThresOff, 0, 10 ) * AnalogReader::NOF_VALUES + 50) / 100);
-            mThresOn     = (value_t) ((strtoul( bufThresOn,  0, 10 ) * AnalogReader::NOF_VALUES + 50) / 100);
-            mMinOffTicks =            (strtoul( bufMinOff,   0, 10 ) * configTICK_RATE_HZ);
-            mMinOnTicks  =            (strtoul( bufMinOn,    0, 10 ) * configTICK_RATE_HZ);
-            mMaxOnTicks  =            (strtoul( bufMaxOn,    0, 10 ) * configTICK_RATE_HZ);
-            mValueTol    = (value_t) ((strtoul( bufValueTol, 0, 10 ) * AnalogReader::NOF_VALUES + 50) / 100);
-            mValueIdx    = (uint16_t)  strtoul( bufValueIdx, 0, 10 );
-            mModeIdx     = (uint16_t)  strtoul( bufModeIdx,  0, 10 );
-            mTempIdx     = (uint16_t)  strtoul( bufTempIdx,  0, 10 );
-            mTempMax     = (uint8_t)   strtoul( bufTempMax,  0, 10 );
+            mThresOff    = percent2value( strtoul( bufThresOff, 0, 10 ) );
+            mThresOn     = percent2value( strtoul( bufThresOn,  0, 10 ) );
+            mMinOffTicks =               (strtoul( bufMinOff,   0, 10 ) * configTICK_RATE_HZ);
+            mMinOnTicks  =               (strtoul( bufMinOn,    0, 10 ) * configTICK_RATE_HZ);
+            mMaxOnTicks  =               (strtoul( bufMaxOn,    0, 10 ) * configTICK_RATE_HZ);
+            mValRange[0] = percent2value( strtoul( bufValRgMin, 0, 10 ) );
+            mValRange[1] = percent2value( strtoul( bufValRgMax, 0, 10 ) );
+            mValueTol    = percent2value( strtoul( bufValueTol, 0, 10 ) );
+            mValueIdx    = (uint16_t)     strtoul( bufValueIdx, 0, 10 );
+            mModeIdx     = (uint16_t)     strtoul( bufModeIdx,  0, 10 );
+            mTempIdx     = (uint16_t)     strtoul( bufTempIdx,  0, 10 );
+            mTempMax     = (uint8_t)      strtoul( bufTempMax,  0, 10 );
         }
+        mMonitor.SetThres( mThresOff, mThresOn );
         WriteParam();
     }
     hh.Add( " <form method=\"post\">\n"
             "  <table>\n" );
     {
-        Table<10,4> table;
+        Table<14,5> table;
         table.Right( 0 );
         table.Right( 2 );
-        table[0][1] = "&nbsp;";
+        table[ 0][1] = "&nbsp;";  // some space due to right adjust of Parameter
+        table[ 0][2] = "Value";
+        table[ 0][0] = "Parameter";                table[ 0][3] = "Unit";      table[ 0][4] = "Remarks";
 
-        table[0][0] = "switching off threshold";
-        table[1][0] = "switching on threshold";
-        table[2][0] = "min. off time";
-        table[3][0] = "min. on time";
-        table[4][0] = "max. on time";
-        table[5][0] = "value tolerance";
-        table[6][0] = "rel. value device idx";
-        table[7][0] = "mode device idx";
-        table[8][0] = "temperature sensor idx";
-        table[9][0] = "overheat temperature";
+        table[ 1][0] = "switching off threshold";  table[ 1][3] = "&percnt;";  table[ 1][4] = "switch off, when exceeding/underrun this value";
+        table[ 2][0] = "switching on threshold";   table[ 2][3] = "&percnt;";  table[ 2][4] = "switch on, when underrun/exceeding this value";
+        table[ 3][0] = "min. off time";            table[ 3][3] = "secs";      table[ 3][4] = "safety switch off, when to switch on faster";
+        table[ 4][0] = "min. on time";             table[ 4][3] = "secs";      table[ 4][4] = "safety switch off, when switched off faster";
+        table[ 5][0] = "max. on time";             table[ 5][3] = "secs";      table[ 5][4] = "force periodical pause of 3 seconds";
+        table[ 6][0] = "min. valid value";         table[ 6][3] = "&percnt;";  table[ 6][4] = "safety switch off, when read value is below of this";
+        table[ 7][0] = "max. valid value";         table[ 7][3] = "&percnt;";  table[ 7][4] = "safety switch off, when read value is above of this";
+        table[ 8][0] = "value tolerance";          table[ 8][3] = "&percnt;";  table[ 8][4] = "force value report on bigger change";
+        table[ 9][0] = "rel. value device idx";  /*table[ 9][3] = "&mdash;";*/ table[ 9][4] = "domoticz device index to report analog value";
+        table[10][0] = "mode device idx";        /*table[10][3] = "&mdash;";*/ table[10][4] = "domoticz device index to report and set operation mode";
+        table[11][0] = "temperature sensor idx"; /*table[11][3] = "&mdash;";*/ table[11][4] = "temperature device to be used for overheat control";
+        table[12][0] = "overheat temperature";     table[12][3] = "&deg;C";    table[12][4] = "safety switch off, when overheat detected";
 
-        table[0][3] = table[1][3] = table[5][3] = "&percnt;";
-        table[2][3] = "secs (safety switch off when to switch on faster)";
-        table[3][3] = "secs (safety switch off when to switch off faster)";
-        table[4][3] = "secs (will force pause, when running longer)";
-        table[9][3] = "&deg;C (safety switch off on overheat)";
+        table[ 1][2] = InputField( s_keyThresOff, 0,   100, value2percent( mThresOff ) );
+        table[ 2][2] = InputField( s_keyThresOn,  0,   100, value2percent( mThresOn  ) );
+        table[ 3][2] = InputField( s_keyMinOff,   1,    60, ((long) mMinOffTicks + configTICK_RATE_HZ/2) / configTICK_RATE_HZ );
+        table[ 4][2] = InputField( s_keyMinOn,    1,    60, ((long) mMinOnTicks  + configTICK_RATE_HZ/2) / configTICK_RATE_HZ );
+        table[ 5][2] = InputField( s_keyMaxOn,    1, 86400, ((long) mMaxOnTicks  + configTICK_RATE_HZ/2) / configTICK_RATE_HZ );
+        table[ 6][2] = InputField( s_keyValRgMin, 0,   100, value2percent( mValRange[0] ) );
+        table[ 7][2] = InputField( s_keyValRgMax, 0,   100, value2percent( mValRange[1] ) );
+        table[ 8][2] = InputField( s_keyValueTol, 0,   100, value2percent( mValueTol ) );
+        table[ 9][2] = InputField( s_keyValueIdx, 0,  9999, mValueIdx );
+        table[10][2] = InputField( s_keyModeIdx,  0,  9999, mModeIdx );
+        table[11][2] = InputField( s_keyTempIdx,  0,  9999, mTempIdx );
+        table[12][2] = InputField( s_keyTempMax,  0,   100, mTempMax );
 
-        table[0][2] = InputField( s_keyThresOff, 0,   100, ((long) mThresOff * 100 + AnalogReader::HALF_VALUES) / AnalogReader::NOF_VALUES );
-        table[1][2] = InputField( s_keyThresOn,  0,   100, ((long) mThresOn  * 100 + AnalogReader::HALF_VALUES) / AnalogReader::NOF_VALUES );
-        table[2][2] = InputField( s_keyMinOff,   1,    60, ((long) mMinOffTicks + configTICK_RATE_HZ/2) / configTICK_RATE_HZ );
-        table[3][2] = InputField( s_keyMinOn,    1,    60, ((long) mMinOnTicks  + configTICK_RATE_HZ/2) / configTICK_RATE_HZ );
-        table[4][2] = InputField( s_keyMaxOn,    1, 86400, ((long) mMaxOnTicks  + configTICK_RATE_HZ/2) / configTICK_RATE_HZ );
-        table[5][2] = InputField( s_keyValueTol, 0,   100, ((long) mValueTol * 100 + AnalogReader::HALF_VALUES) / AnalogReader::NOF_VALUES );
-        table[6][2] = InputField( s_keyValueIdx, 0,  9999, mValueIdx );
-        table[7][2] = InputField( s_keyModeIdx,  0,  9999, mModeIdx );
-        table[8][2] = InputField( s_keyTempIdx,  0,  9999, mTempIdx );
-        table[9][2] = InputField( s_keyTempMax,  0,   100, mTempMax );
-
-        table.AddTo( hh );
+        table[13][2] = "<br /><center><button type=\"submit\">submit</button></center>";
+        table[13][4] = "<br />submit the values to be stored on the device";
+        table.AddTo( hh, 1 );
     }
     hh.Add( "  </table>\n"
-            "  <br />\n"
-            "  <br />\n"
-            "  <center><button type=\"submit\">submit</button></center>\n"
             " </form>\n" );
+
+    hh.Add( " <h3>Current mode and statistics counter</h3>\n"
+            " <table>\n" );
+    {
+        Table<4,3> table;
+        table.Right( 0 );
+        table.Right( 1 );
+        table[0][0] = "Counter"; table[0][1] = "Value"; table[0][2] = "Remarks";
+
+        table[1][0] = "Current mode:";
+        table[2][0] = "Loop counter:";
+        table[3][0] = "Not waiting loop counter:";
+        table[3][2] = "loops without need to wait (should be rare)";
+
+        table[1][1] = std::to_string( mMode );
+        table[1][2] = mModeName[ mMode < COUNT_MODES ? mMode : (uint8_t) COUNT_MODES ];
+        table[2][1] = std::to_string( mLoopCnt );
+        table[3][1] = std::to_string( mLoopCnt - mDelayCnt );
+
+        table.AddTo( hh, 1 );
+    }
+    hh.Add( " </table>\n" );
 }

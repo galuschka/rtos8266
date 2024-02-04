@@ -1,8 +1,5 @@
 /*
  * Relay.cpp
- *
- *  Created on: 19.05.2020
- *      Author: galuschka
  */
 
 #include "Relay.h"
