@@ -3,7 +3,7 @@
 # project subdirectory.
 #
 
-PROJECT_NAME := esp8266-skeleton
+PROJECT_NAME := keypad
 PROJECT_VER := $(shell git describe --abbr=5 --dirty=+)
 
 IDF_PATH := sdk

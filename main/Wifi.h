@@ -13,26 +13,32 @@
 #include "esp_event_base.h"
 #include "tcpip_adapter.h"
 
+class Indicator;
+
 class Wifi
 {
 private:
     enum
     {
-        GOT_IPV4_BIT = 1 << 0,
+        GOT_IPV4_BIT   = 1 << 0,
+        LOST_IPV4_BIT  = 1 << 1,
+        NEW_CLIENT_BIT = 1 << 2,
     };
     enum
     {
         MODE_IDLE,
         MODE_CONNECTING,
+        MODE_RECONNECTING,
+        MODE_WAITDHCP,
         MODE_CONNECTFAILED,
         MODE_ACCESSPOINT,
         MODE_STATION,
     };
-
-    Wifi();
 public:
-    static Wifi& Instance();
+    Wifi();
+
     void Init( int connTimoInSecs );
+
     u32_t GetIpAddr()
     {
         return mIpAddr.addr;
@@ -59,6 +65,8 @@ public:
     void Event( esp_event_base_t event_base, int32_t event_id,
             void * event_data );
     void GotIp( ip_event_got_ip_t * event_data );
+    void LostIp();
+    void NewClient( ip_event_ap_staipassigned_t * event );
 private:
     void ReadParam();
     void ModeAp();
@@ -70,6 +78,7 @@ private:
     char mSsid[32];
     char mPassword[32];
     char mMode;
+    bool mReconnect;
 };
 
 #endif /* MAIN_WIFI_H_ */

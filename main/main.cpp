@@ -3,19 +3,46 @@
  *
  *  Created on: 05.05.2020
  *      Author: galuschka
+ *
+ * D1 mini's usable GPIOs: 4,5, 12,13,14
+ *                         ___   _   _
+ *                        | | |_| |_| |
+ *                        | |        o|           <- wifi antenna and LED
+ *
+ *               /RST   - RST        TX - GPIO1
+ *               ADC0   - A0         RX - GPIO3
+ *   green <--   GPIO16 - D0         D1 - GPIO5   ---> col0
+ *   row0 <---   GPIO14 - D5         D2 - GPIO4   ---> col1
+ *   row1 <---   GPIO12 - D6         D3 - GPIO0   ---> col2
+ *   row2 <---   GPIO13 - D7         D4 - GPIO2   ---> red (+ onboard LED)
+ *   row3 <---   GPIO15 - D8         G  - GND
+ *                      - 3V3        5V - power supply
  */
+static const unsigned char s_row[] = { 14,12,13,15 };
+static const unsigned char s_col[] = {  5, 4, 0 };
+#define NELEMENTS(x) (sizeof(x)/sizeof(x[0]))
+
+//define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 
 #include "Wifi.h"
 #include "WebServer.h"
+
+#include "Indicator.h"
+#include "Updator.h"
+#include "Pinpad.h"
 
 #include "esp_event.h"  // esp_event_loop_create_default()
 #include "esp_netif.h"  // esp_netif_init()
 #include "esp_log.h"    // ESP_LOGI()
 #include "nvs_flash.h"  // nvs_flash_init()
 
-#include "driver/gpio.h"    // gpio_config(), gpio_set_level()
+#if (LOG_LOCAL_LEVEL >= ESP_LOG_DEBUG)
+#define EXPRD(expr) do { expr; } while(0);
+#else
+#define EXPRD(expr)
+#endif
 
-static const char *TAG = "MAIN";
+static const char *TAG = "main";
 
 void main_nvs_init()
 {
@@ -39,31 +66,36 @@ void main_nvs_init()
 
 extern "C" void app_main()
 {
+    // ESP_LOGD( TAG, "enter" ); sys_delay_ms(5000);
+
+    // LED on GPIO2:
+    Indicator::Instance().Init( GPIO_NUM_2, GPIO_NUM_16 ); // red/green
+
+    // ESP_LOGD( TAG, "main_nvs_init()" ); EXPRD(vTaskDelay(1))
+
     main_nvs_init();  // initialize non-volatile file system
 
-    Wifi::Instance().Init( 60 /*secs timeout to try connect*/);
+    // ESP_LOGD( TAG, "Wifi()" ); EXPRD(vTaskDelay(1))
 
+    Wifi wifi;
+
+    // ESP_LOGD( TAG, "wifi.Init()" ); EXPRD(vTaskDelay(1))
+    wifi.Init( 60 );
     // Wifi::Init blocks until success (or access point mode)
     // now we can initialize web server:
-    WebServer::Instance().Init();
 
-    // todo: add real code according your needs
-    // for testing purpose, we just toggle the LED on GPIO2:
-    {
-        gpio_config_t io_conf;
+    ESP_LOGD( TAG, "Updator::Instance().Init()" ); EXPRD(vTaskDelay(1))
+    Updator::Instance().Init( "http://10.9.8.3:8087/keypad.bin" );
 
-        io_conf.pin_bit_mask = (1 << GPIO_NUM_2);       // blue LED onchip
-        io_conf.mode = GPIO_MODE_OUTPUT;                // set as output mode
-        io_conf.pull_up_en = GPIO_PULLUP_DISABLE;       // disable pull-up mode
-        io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;  // disable pull-down mode
-        io_conf.intr_type = GPIO_INTR_DISABLE;          // disable interrupt
+    ESP_LOGD( TAG, "WebServer()" ); EXPRD(vTaskDelay(1))
+    WebServer webServer{ wifi };
 
-        gpio_config( &io_conf );    // configure GPIO with the given settings
-    }
-    while (true) {
-        gpio_set_level( GPIO_NUM_2, 0 );        // low active
-        vTaskDelay( configTICK_RATE_HZ / 10 );
-        gpio_set_level( GPIO_NUM_2, 1 );
-        vTaskDelay( (configTICK_RATE_HZ * 9) / 10 );
-    }
+    ESP_LOGD( TAG, "webServer.Init()" ); EXPRD(vTaskDelay(1))
+    webServer.Init();
+
+    ESP_LOGD( TAG, "Pinpad()" ); EXPRD(vTaskDelay(1))
+    Pinpad pinpad{ s_col, NELEMENTS(s_col), s_row, NELEMENTS(s_row) };
+
+    ESP_LOGD( TAG, "pinpad.Run()" ); EXPRD(vTaskDelay(1))
+    pinpad.Run();
 }
