@@ -20,10 +20,10 @@ public:
             const u8 * row, u8 nofRows );
     // virtual ~Keypad() = 0;
 
-    virtual void OnSequence( const char * seq );   // pause after sequence / seq is hex string
-    virtual void OnKeyPress( u8 num );   // 1st press of a key
-    virtual void OnMultiKey( u16 mask ); // additional key pressed or not last key released
-    virtual void OnRelease();            // all keys released
+    virtual void OnKeyPress( u8 num );                // 1st press of a single key
+    virtual void OnRelease();                         // key released after single key pressed
+    virtual void OnSequence( const char * seq );      // pause after sequence / seq is hex string
+    virtual void OnMultiKey( u16 mask, u16 oldmask ); // additional key pressed or released
 
     void Run();
 
@@ -34,6 +34,7 @@ private:
     u8 const * mRow;     // GPIO pins
     u8 const   mNofCols;
     u8 const   mNofRows;
+    u8         mMultiKey;  // set, when multiple keys pressed until all released
     u16        mAllCols; // 1 << pin
     u16        mAllRows; // 1 << pin
     u16        mNumMask; // 1 << num

@@ -5,35 +5,33 @@
  *      Author: holger
  */
 
+//define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+
 #include "Control.h"
 
-#include "math.h"   // pow()
+#include <string>   // std::string
 
-#include "FreeRTOSConfig.h"
-#include "esp_log.h"
-#include "nvs.h"            // nvs_open(), ...
+#include <FreeRTOSConfig.h>
+#include <esp_log.h>
+#include <nvs.h>            // nvs_open(), ...
 
 #include "AnalogReader.h"
 #include "Relay.h"
 #include "Indicator.h"
 
+#include "HttpHelper.h"
+#include "HttpTable.h"
+#include "HttpParser.h"
 #include "WebServer.h"
 #include "Wifi.h"
 
-
 const char * const TAG = "Control";
 
-extern "C" esp_err_t config_get( httpd_req_t * req );
-
-#define SendCharsChunk( req, chararray )  httpd_resp_send_chunk( req, chararray, sizeof(chararray) - 1 )
+extern "C" esp_err_t get_config( httpd_req_t * req );
+extern "C" esp_err_t post_config( httpd_req_t * req );
 
 namespace
 {
-void SendStringChunk( httpd_req_t * req, const char * string )
-{
-    httpd_resp_send_chunk( req, string, strlen( string ) );
-}
-
 TickType_t now()
 {
     return xTaskGetTickCount();
@@ -49,11 +47,9 @@ unsigned long expiration( TickType_t ticks )
 }
 
 //@formatter:off
-const httpd_uri_t s_uri =       { .uri = "/config",
-                                  .method = HTTP_GET,
-                                  .handler = config_get,
-                                  .user_ctx = 0 };
-const WebServer::Page s_page    { s_uri, "Configure switching thresholds" };
+const httpd_uri_t s_get_uri   = { .uri = "/config", .method = HTTP_GET,  .handler = get_config,  .user_ctx = 0 };
+const httpd_uri_t s_post_uri  = { .uri = "/config", .method = HTTP_POST, .handler = post_config, .user_ctx = 0 };
+const WebServer::Page s_page    { s_get_uri, "Configure switching thresholds" };
 //@formatter:on
 
 const char *s_keyThresOff = "thresOff";
@@ -64,22 +60,29 @@ const char *s_keyMaxOn    = "maxOn";
 
 Control *s_control = 0;
 
-extern "C" esp_err_t config_get( httpd_req_t * req )
+extern "C" esp_err_t get_config( httpd_req_t * req )
 {
     if (s_control)
         s_control->Setup( req );
     return ESP_OK;
 }
 
+extern "C" esp_err_t post_config( httpd_req_t * req )
+{
+    if (s_control)
+        s_control->Setup( req, true );
+    return ESP_OK;
+}
+
 //@formatter:off
 Control::Control( AnalogReader & reader, Relay & relay, thres_t thresOff, thres_t thresOn )
-                : mReader       { reader },
-                  mRelay        { relay },
-                  ThresOff      { thresOff },
-                  ThresOn       { thresOn },
-                  MinOffTicks   { configTICK_RATE_HZ },
-                  MinOnTicks    { configTICK_RATE_HZ * 15 },
-                  MaxOnTicks    { configTICK_RATE_HZ * 60 * 60 }
+                : mReader        { reader },
+                  mRelay         { relay },
+                  mThresOff      { thresOff },
+                  mThresOn       { thresOn },
+                  mMinOffTicks   { configTICK_RATE_HZ },
+                  mMinOnTicks    { configTICK_RATE_HZ * 15 },
+                  mMaxOnTicks    { configTICK_RATE_HZ * 60 * 60 }
 //@formatter:on
 {
     mRelay.AutoOn( false );
@@ -87,7 +90,7 @@ Control::Control( AnalogReader & reader, Relay & relay, thres_t thresOff, thres_
 
     if (1 || Wifi::Instance().StationMode()) {
         s_control = this;
-        WebServer::Instance().AddPage( s_page, 0 );
+        WebServer::Instance().AddPage( s_page, & s_post_uri );
     }
 }
 
@@ -103,31 +106,31 @@ void Control::Run( Indicator & indicator )
             signed long diff = exp - now();
             toSwitch = (diff <= 0);
             if (!toSwitch) {
-                if (ThresOff > ThresOn)
-                    toSwitch = mReader.Average( 10 ) >= ThresOff;
+                if (mThresOff > mThresOn)
+                    toSwitch = mReader.Average( 10 ) >= mThresOff;
                 else
-                    toSwitch = mReader.Average( 10 ) <= ThresOff;
+                    toSwitch = mReader.Average( 10 ) <= mThresOff;
             }
             if (toSwitch) {
                 mRelay.AutoOn( false );
                 indicator.Indicate( Indicator::STATUS_IDLE );
                 exp = 0;
-                if (MinOffTicks) {
-                    vTaskDelay( MinOffTicks );
+                if (mMinOffTicks) {
+                    vTaskDelay( mMinOffTicks );
                     continue;
                 }
             }
         } else {
-            if (ThresOff > ThresOn)
-                toSwitch = mReader.Average( 10 ) <= ThresOn;
+            if (mThresOff > mThresOn)
+                toSwitch = mReader.Average( 10 ) <= mThresOn;
             else
-                toSwitch = mReader.Average( 10 ) >= ThresOn;
+                toSwitch = mReader.Average( 10 ) >= mThresOn;
             if (toSwitch) {
                 mRelay.AutoOn( true );
                 indicator.Indicate( Indicator::STATUS_ACTIVE );
-                exp = expiration( MaxOnTicks );
-                if (MinOnTicks) {
-                    vTaskDelay( MinOnTicks );
+                exp = expiration( mMaxOnTicks );
+                if (mMinOnTicks) {
+                    vTaskDelay( mMinOnTicks );
                     continue;
                 }
             }
@@ -136,22 +139,6 @@ void Control::Run( Indicator & indicator )
         vTaskDelay( configTICK_RATE_HZ / 10 );
     }
 }
-
-#if 0
-void Control::SetThreshold( Control::thres_t thresOff,
-        Control::thres_t thresOn )
-{
-    ThresOff = thresOff;
-    ThresOn = thresOn;
-}
-
-void Control::SetTimeLimits( int minOffTicks, int minOnTicks, int maxOnTicks )
-{
-    MinOffTicks = minOffTicks;
-    MinOnTicks = minOnTicks;
-    MaxOnTicks = maxOnTicks;
-}
-#endif
 
 void Control::ReadParam()
 {
@@ -162,33 +149,47 @@ void Control::ReadParam()
         {
             uint16_t val;
             if (nvs_get_u16( my_handle, s_keyThresOff, & val ) == ESP_OK)
-                ThresOff = val;
+                mThresOff = val;
             if (nvs_get_u16( my_handle, s_keyThresOn, & val ) == ESP_OK)
-                ThresOn = val;
+                mThresOn = val;
         }
         {
             uint32_t val;
             if (nvs_get_u32( my_handle, s_keyMinOff, & val ) == ESP_OK)
-                MinOffTicks = val;
+                mMinOffTicks = val;
             if (nvs_get_u32( my_handle, s_keyMinOn, & val ) == ESP_OK)
-                MinOnTicks = val;
+                mMinOnTicks = val;
             if (nvs_get_u32( my_handle, s_keyMaxOn, & val ) == ESP_OK)
-                MaxOnTicks = val;
+                mMaxOnTicks = val;
         }
-
         nvs_close( my_handle );
+
+        ESP_LOGD( TAG, "thresOff = %6d   %%",   mThresOff );
+        ESP_LOGD( TAG, "thresOn  = %6d   %%",   mThresOn  );
+        ESP_LOGD( TAG, "minOff   = %8lu ticks", mMinOffTicks );
+        ESP_LOGD( TAG, "minOn    = %8lu ticks", mMinOnTicks );
+        ESP_LOGD( TAG, "maxOn    = %8lu ticks", mMaxOnTicks );
     }
 }
 
 void Control::WriteParam()
 {
+    ESP_LOGI( TAG, "Writing control configuration" );
+
+    ESP_LOGD( TAG, "thresOff = %6d/1023",   mThresOff );
+    ESP_LOGD( TAG, "thresOn  = %6d/1023",   mThresOn  );
+    ESP_LOGD( TAG, "minOff   = %8lu ticks", mMinOffTicks );
+    ESP_LOGD( TAG, "minOn    = %8lu ticks", mMinOnTicks );
+    ESP_LOGD( TAG, "maxOn    = %8lu ticks", mMaxOnTicks );
+
     nvs_handle my_handle;
     if (nvs_open( "control", NVS_READWRITE, &my_handle ) == ESP_OK) {
-        SetU16( my_handle, s_keyThresOff, ThresOff );
-        SetU16( my_handle, s_keyThresOn,  ThresOn );
-        SetU32( my_handle, s_keyMinOff,   MinOffTicks );
-        SetU32( my_handle, s_keyMinOn,    MinOnTicks );
-        SetU32( my_handle, s_keyMaxOn,    MaxOnTicks );
+        SetU16( my_handle, s_keyThresOff, mThresOff );
+        SetU16( my_handle, s_keyThresOn,  mThresOn );
+        SetU32( my_handle, s_keyMinOff,   mMinOffTicks );
+        SetU32( my_handle, s_keyMinOn,    mMinOnTicks );
+        SetU32( my_handle, s_keyMaxOn,    mMaxOnTicks );
+        nvs_commit( my_handle );
         nvs_close( my_handle );
     }
 }
@@ -214,82 +215,79 @@ void Control::SetU32( nvs_handle nvs, const char * key, uint32_t val )
 }
 
 namespace {
-void SendConfigRow( struct httpd_req * req, const char * key, float min, float max, int decimals, const char * unit, float val, const char * title )
-{
-    char str[10];
 
-    SendStringChunk( req, "   <tr><td>" );
-    SendStringChunk( req, title );
-    SendStringChunk( req, "</td><td align=\"right\"><input type=\"number" );
-    SendStringChunk( req, "\" name=\""  ); SendStringChunk( req, key );
-    SendStringChunk( req, "\" min=\""   ); snprintf( str, sizeof(str), "%.*f", decimals, min ); SendStringChunk( req, str );
-    SendStringChunk( req, "\" max=\""   ); snprintf( str, sizeof(str), "%.*f", decimals, max ); SendStringChunk( req, str );
-    SendStringChunk( req, "\" value=\"" ); snprintf( str, sizeof(str), "%.*f", decimals, val ); SendStringChunk( req, str );
-    SendStringChunk( req, "\" step=\""  ); snprintf( str, sizeof(str), "%f", pow( 10,-decimals ) ); SendStringChunk( req, str );
-    SendStringChunk( req, "\" /></td><td>" );
-    SendStringChunk( req, unit );
-    SendStringChunk( req, "</td></tr>\n" );
-}
+std::string InputField( const char * key, long min, long max, long val )
+{
+    std::string str {"<input type=\"number\" step=\"1\" name=\"" }; str += key;
+    str += "\" min=\"";   str += HttpHelper::String( min );
+    str += "\" max=\"";   str += HttpHelper::String( max );
+    str += "\" value=\""; str += HttpHelper::String( val );
+    str += "\" />";
+    return str;
 }
 
-void Control::Setup( struct httpd_req * req )
+}
+
+void Control::Setup( struct httpd_req * req, bool post )
 {
-    size_t const buf_len = httpd_req_get_url_query_len( req );
-    if (buf_len) {
-        ESP_LOGI( TAG, "query length: %d", buf_len );
-        char * const buf = (char *) malloc( buf_len + 1 );
-        if (httpd_req_get_url_query_str( req, buf, buf_len + 1 ) == ESP_OK) {
-            ESP_LOGI( TAG, "query: %s", buf );
-            char * bp = buf;
-            while (bp && *bp) {
-                char * key = bp;
-                bp = strchr( key, '=' );
-                if (! bp)
-                    break;
-                *bp++ = 0;
-                char * val = bp;
-                bp = strchr( val, '&' );
-                if (bp)
-                    *bp++ = 0;
+    HttpHelper hh{ req, "Configuration" };
 
-                float x;
-                sscanf( val, "%f", &x );
-                ESP_LOGI( TAG, "get %s=%f", key, x );
+    if (post) {
+        {
+            char bufThresOff[4];
+            char bufThresOn[4];
+            char bufMinOff[4];
+            char bufMinOn[4];
+            char bufMaxOn[8];
+            HttpParser::Input in[] = { { s_keyThresOff, bufThresOff, sizeof(bufThresOff) },
+                                       { s_keyThresOn,  bufThresOn,  sizeof(bufThresOn)  },
+                                       { s_keyMinOff,   bufMinOff,   sizeof(bufMinOff)   },
+                                       { s_keyMinOn,    bufMinOn,    sizeof(bufMinOn)    },
+                                       { s_keyMaxOn,    bufMaxOn,    sizeof(bufMaxOn)    } };
+            HttpParser parser{ in, sizeof(in) / sizeof(in[0]) };
 
-                if (! strcmp( key, s_keyThresOff )) {
-                    ThresOff = (thres_t) (x * 10.24);
-                } else if (! strcmp( key, s_keyThresOn )) {
-                    ThresOn = (thres_t) (x * 10.24);
-                } else if (! strcmp( key, s_keyMinOff )) {
-                    MinOffTicks = (timo_t) (x * configTICK_RATE_HZ);
-                } else if (! strcmp( key, s_keyMinOn )) {
-                    MinOnTicks = (timo_t) (x * configTICK_RATE_HZ);
-                } else if (! strcmp( key, s_keyMaxOn )) {
-                    MaxOnTicks = (timo_t) (x * configTICK_RATE_HZ);
-                } else {
-                    ESP_LOGE( TAG, "unknown key: %s=%f", key, x );
-                }
+            if (! parser.ParsePostData( req )) {
+                hh.Add( "unexpected end of data while parsing data" );
+                return;
             }
+
+            mThresOff    = (thres_t) ((strtoul( bufThresOff, 0, 10 ) * 1023 + 50) / 100);
+            mThresOn     = (thres_t) ((strtoul( bufThresOn,  0, 10 ) * 1023 + 50) / 100);
+            mMinOffTicks =            (strtoul( bufMinOff,   0, 10 ) * configTICK_RATE_HZ);
+            mMinOnTicks  =            (strtoul( bufMinOn,    0, 10 ) * configTICK_RATE_HZ);
+            mMaxOnTicks  =            (strtoul( bufMaxOn,    0, 10 ) * configTICK_RATE_HZ);
         }
-        free( buf );
         WriteParam();
     }
-    static char s_data1[] = "<body>\n"
-                            " <form>\n"
-                            "  <table border=0>\n";
-    static char s_data9[] = "  </table>\n"
-                            "  <button type=\"submit\">submit</button>\n"
-                            " </form>\n"
-                            "</body>\n";
+    hh.Add( " <form method=\"post\">\n"
+            "  <table>\n" );
+    {
+        Table<5,4> table;
+        table.Right( 0 );
+        table.Right( 2 );
+        table[0][1] = "&nbsp;";
 
-    SendCharsChunk( req, s_data1 );
+        table[0][0] = "switching off threshold";
+        table[1][0] = "switching on threshold";
+        table[2][0] = "min. off time";
+        table[3][0] = "min. on time";
+        table[4][0] = "max. on time";
 
-    SendConfigRow( req, s_keyThresOff, 0, 100, 0, "%", ThresOff / 10.24, "switching off threshold" );
-    SendConfigRow( req, s_keyThresOn,  0, 100, 0, "%", ThresOn  / 10.24, "switching on threshold" );
-    SendConfigRow( req, s_keyMinOff, 0.01, 60, 2, "secs", MinOffTicks * 1.0 / configTICK_RATE_HZ, "min. off time" );
-    SendConfigRow( req, s_keyMinOn,  0.01, 60, 2, "secs", MinOnTicks  * 1.0 / configTICK_RATE_HZ, "min. on time" );
-    SendConfigRow( req, s_keyMaxOn,  1, 86400, 0, "secs", MaxOnTicks  * 1.0 / configTICK_RATE_HZ, "max. on time" );
+        table[0][3] = "&percnt;";
+        table[1][3] = "&percnt;";
+        table[2][3] = "secs";
+        table[3][3] = "secs";
+        table[4][3] = "secs";
 
-    SendCharsChunk( req, s_data9 );
-    httpd_resp_send_chunk( req, 0, 0 );
+        table[0][2] = InputField( s_keyThresOff, 0, 100, ((long) mThresOff * 100 + 511) / 1023 );
+        table[1][2] = InputField( s_keyThresOn,  0, 100, ((long) mThresOn  * 100 + 511) / 1023 );
+        table[2][2] = InputField( s_keyMinOff,   1,  60, ((long) mMinOffTicks + configTICK_RATE_HZ/2) / configTICK_RATE_HZ );
+        table[3][2] = InputField( s_keyMinOn,   1,   60, ((long) mMinOnTicks  + configTICK_RATE_HZ/2) / configTICK_RATE_HZ );
+        table[4][2] = InputField( s_keyMaxOn,  1, 86400, ((long) mMaxOnTicks  + configTICK_RATE_HZ/2) / configTICK_RATE_HZ );
+
+        table.AddTo( hh );
+    }
+    hh.Add( "  </table>\n"
+            "  <button type=\"submit\">submit</button>\n"
+            " </form>\n" );
 }

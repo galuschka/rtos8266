@@ -7,11 +7,11 @@
 
 #include "Relay.h"
 
-#include "esp_log.h"        // ESP_LOGI()
+#include <esp_log.h>        // ESP_LOGI()
 
-#include "FreeRTOSConfig.h"
-#include "FreeRTOS.h"
-#include "task.h"
+#include <FreeRTOSConfig.h>
+#include <FreeRTOS.h>
+#include <task.h>
 
 const char *const TAG = "Relay";
 
@@ -35,20 +35,20 @@ Relay::Relay( gpio_num_t pin, bool openDrain, bool lowActive )
 {
 //@formatter:on
 
-gpio_config_t io_conf;
+    gpio_config_t io_conf;
 
-io_conf.pin_bit_mask = (1 << Pin);// the pin
-if (openDrain)
-io_conf.mode = GPIO_MODE_OUTPUT_OD;// open drain for single relay
-else
-io_conf.mode = GPIO_MODE_OUTPUT;// set as output mode
-io_conf.pull_up_en = GPIO_PULLUP_DISABLE;// disable pull-up mode
-io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;// disable pull-down mode
-io_conf.intr_type = GPIO_INTR_DISABLE;// disable interrupt
+    io_conf.pin_bit_mask = (1 << Pin);// the pin
+    if (openDrain)
+        io_conf.mode = GPIO_MODE_OUTPUT_OD;// open drain for single relay
+    else
+        io_conf.mode = GPIO_MODE_OUTPUT;// set as output mode
+    io_conf.pull_up_en = GPIO_PULLUP_DISABLE;// disable pull-up mode
+    io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;// disable pull-down mode
+    io_conf.intr_type = GPIO_INTR_DISABLE;// disable interrupt
 
-gpio_config( &io_conf );// configure GPIO with the given settings
+    gpio_config( &io_conf );// configure GPIO with the given settings
 
-gpio_set_level( Pin, LowActive );
+    gpio_set_level( Pin, LowActive );
 }
 
 void Relay::SetMode( Relay::GenMode newMode )

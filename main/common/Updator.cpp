@@ -11,12 +11,12 @@
 
 #include <string.h>             // memset()
 
-#include "esp_http_client.h"   	// esp_http_client_config_t
-#include "esp_ota_ops.h"   		// esp_ota_begin(), ...
-#include "esp_system.h"   	    // esp_restart()
-#include "esp_log.h"
-#include "esp_flash_data_types.h" // esp_ota_select_entry_t, OTA_TEST_STAGE
-#include "nvs.h"                // nvs_open(), ...
+#include <esp_http_client.h>   	// esp_http_client_config_t
+#include <esp_ota_ops.h>   		// esp_ota_begin(), ...
+#include <esp_system.h>   	    // esp_restart()
+#include <esp_log.h>
+#include <esp_flash_data_types.h> // esp_ota_select_entry_t, OTA_TEST_STAGE
+#include <nvs.h>                // nvs_open(), ...
 
 namespace {
     const char *const TAG            = "Updator";

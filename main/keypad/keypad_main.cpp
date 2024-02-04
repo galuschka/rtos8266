@@ -1,21 +1,21 @@
 /*
- * main.cpp
- *
- *  Created on: 05.05.2020
- *      Author: galuschka
+ * keypad_main.cpp
  *
  * D1 mini's usable GPIOs: 4,5, 12,13,14
+ * https://randomnerdtutorials.com/esp8266-pinout-reference-gpios/
+ *      10k pull-up   on GPIO  0,2
+ *      10k pull-down on GPIO 15
  *                         ___   _   _
  *                        | | |_| |_| |
  *                        | |        o|           <- wifi antenna and LED
  *
  *               /RST   - RST        TX - GPIO1
  *               ADC0   - A0         RX - GPIO3
- *   green <--   GPIO16 - D0         D1 - GPIO5   ---> col0
- *   row0 <---   GPIO14 - D5         D2 - GPIO4   ---> col1
- *   row1 <---   GPIO12 - D6         D3 - GPIO0   ---> col2
- *   row2 <---   GPIO13 - D7         D4 - GPIO2   ---> red (+ onboard LED)
- *   row3 <---   GPIO15 - D8         G  - GND
+ *   green <---  GPIO16 - D0         D1 - GPIO5   ---> col0
+ *   row0  --->  GPIO14 - D5         D2 - GPIO4   ---> col1
+ *   row1  --->  GPIO12 - D6         D3 - GPIO0   ---> col2
+ *   row2  --->  GPIO13 - D7         D4 - GPIO2   ---> red (+ onboard LED)
+ *   row3  --->  GPIO15 - D8         G  - GND
  *                      - 3V3        5V - power supply
  */
 static const unsigned char s_row[] = { 14,12,13,15 };
@@ -42,7 +42,7 @@ static const unsigned char s_col[] = {  5, 4, 0 };
 #define EXPRD(expr)
 #endif
 
-static const char *TAG = "main";
+static const char *TAG = "keypad";
 
 extern "C" void OnFlash( const char * topic, const char * data )
 {

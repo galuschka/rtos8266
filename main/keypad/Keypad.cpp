@@ -34,7 +34,9 @@ Keypad::Keypad( const u8 * col, u8 nofCols,
               : mCol        { col },
                 mRow        { row },
                 mNofCols    { nofCols },
-                mNofRows    { nofRows }
+                mNofRows    { nofRows },
+                mMultiKey   { 0 },
+                mNumMask    { 0 }
 //@formatter:on
 {
     mAllCols = 0;
@@ -71,7 +73,7 @@ void Keypad::OnSequence( const char * seq )   // pause after sequence / seq is h
 {
     ESP_LOGI( TAG, "seq %s", seq );
 
-    Mqtinator::Instance().Pub( "sequence", seq );
+    Mqtinator::Instance().Pub( "seq", seq );
 }
 
 void Keypad::OnKeyPress( u8 num )
@@ -92,10 +94,16 @@ void Keypad::OnKeyPress( u8 num )
     Mqtinator::Instance().Pub( "key", s_buf );
 }
 
-void Keypad::OnMultiKey( u16 mask )
+void Keypad::OnRelease()
+{
+    ESP_LOGD( TAG, "key rel. (mask = 0)" );
+    Mqtinator::Instance().Pub( "rel", "0" );
+}
+
+void Keypad::OnMultiKey( u16 mask, u16 oldmask )
 {
     ESP_LOGI( TAG, "key ev - mask = %#x", mask );
-
+    const char * const topic = ((oldmask & mask) == mask) ? "mrel" : "mask";
     static char s_buf[8];
     char * bp = & s_buf[sizeof(s_buf) - 1];
     *bp = 0;
@@ -107,13 +115,7 @@ void Keypad::OnMultiKey( u16 mask )
         *--bp = 'x';  // leading 0x
         *--bp = '0';
     }
-    Mqtinator::Instance().Pub( "mask", bp );
-}
-
-void Keypad::OnRelease()
-{
-    ESP_LOGD( TAG, "key rel. (mask = 0)" );
-    Mqtinator::Instance().Pub( "mask", "0" );
+    Mqtinator::Instance().Pub( topic, bp );
 }
 
 void Keypad::Run()
@@ -172,8 +174,9 @@ void Keypad::Run()
                             numMask |= 1 << num;
                         } // for c
                 } // for r
-                if (! numMask) {
-                    ESP_LOGW( TAG, "fast detection said 'at least one key pressed' - fix fast detection" );
+                if (! numMask && ! mNumMask) {
+                    ESP_LOGW( TAG, "fast detection said 'at least one key pressed'"
+                                   " - fix fast detection in case of frequent spurious detection" );
                 }
             } // if colMatch
             else
@@ -204,20 +207,24 @@ void Keypad::Run()
             if (! lastRelease)
                 lastRelease = 1;
             Indicator::Instance().Steady( 0 );
-            OnRelease();
+            if (mMultiKey) {
+                mMultiKey = 0;
+                OnMultiKey( 0, mNumMask );
+            } else
+                OnRelease();
         } else {
             lastRelease = 0;
-            if (! mNumMask) {
+            if (! mNumMask)
                 Indicator::Instance().Steady( 1 );
-                if (numMask == (1 << num)) {
-                    if (sp < seqend) {
-                        *++sp = num + '0' + ((num / 10) * ('A' - '0' - 10));
-                    }
-                    OnKeyPress( num );
-                } else
-                    OnMultiKey( numMask );
+            if (numMask != (1 << num))
+                mMultiKey = 1;
+            if (mMultiKey) {
+                OnMultiKey( numMask, mNumMask );
             } else {
-                OnMultiKey( numMask );
+                if (sp < seqend) {
+                    *++sp = num + '0' + ((num / 10) * ('A' - '0' - 10));
+                }
+                OnKeyPress( num );
             }
             delay = shortDelay;
         }

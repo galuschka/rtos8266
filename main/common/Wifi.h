@@ -8,10 +8,10 @@
 #ifndef MAIN_WIFI_H_
 #define MAIN_WIFI_H_
 
-#include "lwip/netif.h"
-#include "event_groups.h"
-#include "esp_event_base.h"
-#include "tcpip_adapter.h"
+#include <lwip/netif.h>
+#include <event_groups.h>
+#include <esp_event_base.h>
+#include <tcpip_adapter.h>
 
 class Indicator;
 

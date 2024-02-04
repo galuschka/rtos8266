@@ -7,28 +7,16 @@
 
 #include "Monitor.h"
 
-#include "math.h"
+#include <math.h>
 
+#include "HttpHelper.h"
 #include "WebServer.h"
 #include "Wifi.h"
-
-#define SendCharsChunk( req, chararray )  httpd_resp_send_chunk( req, chararray, sizeof(chararray) - 1 )
-
-namespace
-{
-void SendStringChunk( httpd_req_t * req, const char * string )
-{
-    httpd_resp_send_chunk( req, string, strlen( string ) );
-}
-}
 
 extern "C" esp_err_t monitor_get( httpd_req_t * req );
 
 //@formatter:off
-const httpd_uri_t s_uri =       { .uri = "/monitor",
-                                  .method = HTTP_GET,
-                                  .handler = monitor_get,
-                                  .user_ctx = 0 };
+const httpd_uri_t s_uri =       { .uri = "/monitor", .method = HTTP_GET, .handler = monitor_get, .user_ctx = 0 };
 const WebServer::Page s_page    { s_uri, "Monitor analog pin values" };
 //@formatter:on
 
@@ -64,14 +52,15 @@ void Monitor::Show( struct httpd_req * req ) const
         Y0 = HEIGHT + (FONT_SIZE / 2) + 2,
         DIM_Y = HEIGHT + FONT_SIZE + 4,
 
-        N = 100,        // show last N values
-        FACTOR_X = 10,  // graph width: N * FACTOR_X pixel
-        X_LABEL = 75,  // points reserved for 1st label text
-        GROUP_IND = 50, // label indent per group
+        N = 100,         // show last N values
+        FACTOR_X  = 10,  // graph width: N * FACTOR_X pixel
+        X_LABEL   = 75,  // points reserved for 1st label text
+        GROUP_IND = 75,  // label indent per group
         X0 = X_LABEL + ((GROUP_IND * 5) / 2),
         DIM_X = X0 + ((N - 1) * FACTOR_X) + 1,
     };
-    static const char *const color[] = { "#777", "#4c4", "#c44" };
+    // groups: 0 = overall (blue), 1 = off (black), 2 = on (red)
+    static const char *const color[] = { "#44c", "#111", "#c44" };
 
     char buf[80];
     value_t val[N];
@@ -121,18 +110,18 @@ void Monitor::Show( struct httpd_req * req ) const
 
 #define Y(v)    (Y0 - (int) (((v) - minmax[0][0]) * scaleY))
 
-    static char s_data1[] =
-            "<head><meta http-equiv=\"refresh\" content=\"5\"></head>\n"
-                    "<body>\n";
-    static char s_data9[] = "</body>\n";
+    HttpHelper hh{ req, "Monitor" };
+    hh.Head( "<meta http-equiv=\"refresh\" content=\"5\">" );
+    hh.Add( "<center><b>"
+                "<font color=#c44>" "relay on"    "</font>&nbsp;&nbsp;"
+                "<font color=#111>" "relay off"   "</font>&nbsp;&nbsp;"
+                "<font color=#44c>" "min/max/avg" "</font>"
+            "</b></center>\n" );
 
-    SendCharsChunk( req, s_data1 );
     snprintf( buf, sizeof(buf), "<svg viewBox=\"0 0 %d %d\" class=\"chart\">\n",
-            DIM_X, DIM_Y );
-    SendStringChunk( req, buf );
-
-    SendStringChunk( req,
-            " <text text-anchor=\"end\" dominant-baseline=\"central\">\n" );
+                DIM_X, DIM_Y );
+    hh.Add( buf );
+    hh.Add( " <text text-anchor=\"end\" dominant-baseline=\"central\">\n" );
     int set = 0;
     for (group = 0; group < 3; ++group) {
         if (!cnt[group])
@@ -142,15 +131,13 @@ void Monitor::Show( struct httpd_req * req ) const
                     || (((minmax[group][1] - minmax[group][0]) * scaleY)
                             > FONT_SIZE)) {
                 snprintf( buf, sizeof(buf),
-                        "  <tspan style=\"fill: %s;\" x=\"%d\" y=\"%d\">",
-                        color[group], (X_LABEL - 4) + (group * GROUP_IND),
-                        Y( minmax[group][kind] ));
-                SendStringChunk( req, buf ); // split cause compiler warning
-                snprintf( buf, sizeof(buf),
-                        "%.*f%s&nbsp;%%</tspan>\n",
-                        group ? 1 : 0, minmax[group][kind] * 100.0 / AnalogReader::MAX_VALUE,
-                        group ? "" : "&puncsp;&nbsp;" );
-                SendStringChunk( req, buf );
+                          "  <tspan style=\"fill: %s;\" x=\"%d\" y=\"%d\">",
+                          color[group], (X_LABEL - 4) + (group * GROUP_IND),
+                          Y( minmax[group][kind] ));
+                hh.Add( buf ); // split cause compiler warning
+                hh.Add( minmax[group][kind] * 100.0 / AnalogReader::MAX_VALUE, group ? 1 : 0 );
+                // if (group) hh.Add( "&puncsp;&nbsp;" );  // unknown purpose...
+                hh.Add( "&nbsp;&percnt;</tspan>\n" );
             }
         }
         if (((minmax[group][1] - minmax[group][0]) * scaleY) > FONT_SIZE) {
@@ -158,38 +145,38 @@ void Monitor::Show( struct httpd_req * req ) const
             if ((((avg - minmax[group][0]) * scaleY) > FONT_SIZE)
                     && (((minmax[group][1] - avg) * scaleY) > FONT_SIZE)) {
                 snprintf( buf, sizeof(buf),
-                        "  <tspan style=\"fill: %s;\" x=\"%d\" y=\"%d\">%.1f&nbsp;%%</tspan>\n",
-                        color[group], (X_LABEL - 4) + (group * GROUP_IND),
-                        Y( avg ),
-                        avg * 100.0 / AnalogReader::MAX_VALUE );
-                SendStringChunk( req, buf );
+                          "  <tspan style=\"fill: %s;\" x=\"%d\" y=\"%d\">",
+                          color[group], (X_LABEL - 4) + (group * GROUP_IND), Y( avg ) );
+                hh.Add( buf ); // split cause compiler warning
+                hh.Add( avg * 100.0 / AnalogReader::MAX_VALUE, 1 );
+                hh.Add( "&nbsp;&percnt;</tspan>\n" );
             }
         }
     }
-    SendStringChunk( req, " </text>\n" );
+    hh.Add( " </text>\n" );
 
     snprintf( buf, sizeof(buf),
             "  <line stroke=\"%s\" stroke-width=\"1\" ",
             color[0] );
-    SendStringChunk( req, buf );  // split cause compiler warning
+    hh.Add( buf );  // split cause compiler warning
     snprintf( buf, sizeof(buf),
-            "x1=\"%d\" x2=\"%d\" y1=\"%d\" y2=\"%d\" />\n",
-            X0 - 1, X0 - 1, Y( minmax[0][1] ), Y( minmax[0][0] ) );
-    SendStringChunk( req, buf );
+              "x1=\"%d\" x2=\"%d\" y1=\"%d\" y2=\"%d\" />\n",
+              X0 - 1, X0 - 1, Y( minmax[0][1] ), Y( minmax[0][0] ) );
+    hh.Add( buf );
     for (group = 0; group < 3; ++group) {
         if (!cnt[group])
             continue;
         for (int kind = 0; kind < 2; ++kind) {
             // stroke-dasharray=\"5,10\" does not work...
             snprintf( buf, sizeof(buf),
-                    "  <line stroke=\"%s\" stroke-width=\"1\" ",
-                    color[group] );
-            SendStringChunk( req, buf );  // split cause compiler warning
+                      "  <line stroke=\"%s\" stroke-width=\"1\" ",
+                      color[group] );
+            hh.Add( buf );  // split cause compiler warning
             snprintf( buf, sizeof(buf),
-                    "x1=\"%d\" x2=\"%d\" y1=\"%d\" y2=\"%d\" />\n",
-                    X_LABEL + (group * GROUP_IND), DIM_X,
-                    Y( minmax[group][kind] ), Y( minmax[group][kind] ) );
-            SendStringChunk( req, buf );
+                      "x1=\"%d\" x2=\"%d\" y1=\"%d\" y2=\"%d\" />\n",
+                      X_LABEL + (group * GROUP_IND), DIM_X,
+                      Y( minmax[group][kind] ), Y( minmax[group][kind] ) );
+            hh.Add( buf );
         }
     }
 
@@ -201,33 +188,29 @@ void Monitor::Show( struct httpd_req * req ) const
 
         if (set) {
             snprintf( buf, sizeof(buf), " %d,%d", x, y );
-            SendStringChunk( req, buf );
+            hh.Add( buf );
         }
         group = (val[i] & 0x8000) ? 2 : 1;
         if (set != group) {
             if (set)
-                SendStringChunk( req, "\" />\n" );
+                hh.Add( "\" />\n" );
             set = group;
             snprintf( buf, sizeof(buf), " <polyline fill=\"none\""
-                    " stroke=\"%s\""
-                    " stroke-width=\"3\""
-                    " points=\""
-                    "%d,%d", color[group], x, y );
-            SendStringChunk( req, buf );
+                      " stroke=\"%s\""
+                      " stroke-width=\"3\""
+                      " points=\""
+                      "%d,%d", color[group], x, y );
+            hh.Add( buf );
         }
     }
     if (set)
-        SendStringChunk( req, "\" />\n" );
+        hh.Add( "\" />\n" );
 
-    SendStringChunk( req, " </svg>\n" );
+    hh.Add( " </svg>\n" );
     /*
      snprintf( buf, sizeof(buf), " <br /><br /><br />"
      "free heap: %d, %d\n", esp_get_free_heap_size(),
      heap_caps_get_free_size( MALLOC_CAP_8BIT ) );
-     SendStringChunk( req, buf );
+     hh.Add( buf );
      */
-
-    SendCharsChunk( req, s_data9 );
-
-    httpd_resp_send_chunk( req, 0, 0 );
 }

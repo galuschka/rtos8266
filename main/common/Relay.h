@@ -8,9 +8,9 @@
 #ifndef MAIN_RELAY_H_
 #define MAIN_RELAY_H_
 
-#include "FreeRTOS.h"
-#include "portmacro.h"
-#include "driver/gpio.h"    // gpio_num_t
+#include <FreeRTOS.h>
+#include <portmacro.h>
+#include <driver/gpio.h>    // gpio_num_t
 
 class Relay
 {

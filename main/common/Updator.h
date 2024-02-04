@@ -8,11 +8,11 @@
 #ifndef MAIN_UPDATOR_H_
 #define MAIN_UPDATOR_H_
 
-#include "FreeRTOS.h"
-#include "task.h"
-#include "semphr.h"
+#include <FreeRTOS.h>
+#include <task.h>
+#include <semphr.h>
 
-#include "driver/gpio.h"    // gpio_num_t
+#include <driver/gpio.h>    // gpio_num_t
 
 class Updator
 {

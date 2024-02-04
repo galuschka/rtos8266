@@ -4,7 +4,8 @@ cmake_minimum_required(VERSION 3.5)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
-project(rtos8266)
-# project(keypad)
-# project(threswizz)
-# project(smartmeter)
+# project( rtos8266 )
+project( keypad )
+# project( threswizz )
+# project( tempizz )
+# project( smartmeter )

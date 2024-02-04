@@ -12,10 +12,10 @@
 
 #include <string.h>         // strncpy()
 
-#include "esp_wifi.h"       // esp_wifi_init(), ...
-#include "nvs.h"            // nvs_open(), ...
-#include "esp_ota_ops.h"    // esp_ota_get_app_description()
-#include "esp_log.h"        // ESP_LOGI()
+#include <esp_wifi.h>       // esp_wifi_init(), ...
+#include <nvs.h>            // nvs_open(), ...
+#include <esp_ota_ops.h>    // esp_ota_get_app_description()
+#include <esp_log.h>        // ESP_LOGI()
 
 #if (LOG_LOCAL_LEVEL >= ESP_LOG_DEBUG)
 #define EXPRD(expr) do { expr; } while(0);
@@ -47,17 +47,6 @@ void Wifi::ReadParam()
         ESP_LOGD( TAG, "Reading Host" ); EXPRD(vTaskDelay(1))
         size_t len = sizeof(mHost);
         nvs_get_str( my_handle, s_keyHost, mHost, &len );
-        if (!mHost[0]) {
-            uint8_t mac[6];
-            esp_read_mac( mac, ESP_MAC_WIFI_SOFTAP );
-            const esp_app_desc_t *const app_description =
-                                        esp_ota_get_app_description();
-            snprintf( mHost, sizeof(mHost) - 1, "%.*s-%02x-%02x-%02x",
-                      sizeof(mHost) - 11, app_description->project_name,
-                      mac[3], mac[4], mac[5] );
-            mHost[ sizeof(mHost) - 1 ] = 0;
-        }
-
         ESP_LOGD( TAG, "Reading SSID" ); EXPRD(vTaskDelay(1))
         len = sizeof(mSsid);
         nvs_get_str( my_handle, s_keySsid, mSsid, &len );
@@ -68,6 +57,17 @@ void Wifi::ReadParam()
 
         nvs_close( my_handle );
     }
+    if (!mHost[0]) {
+        uint8_t mac[6];
+        esp_read_mac( mac, ESP_MAC_WIFI_SOFTAP );
+        const esp_app_desc_t *const app_description =
+                                    esp_ota_get_app_description();
+        snprintf( mHost, sizeof(mHost) - 1, "%.*s-%02x-%02x-%02x",
+                    sizeof(mHost) - 11, app_description->project_name,
+                    mac[3], mac[4], mac[5] );
+        mHost[ sizeof(mHost) - 1 ] = 0;
+    }
+
     if (!mSsid[0]) {
         ESP_LOGI( TAG, "SSID not set" );
     } else {
@@ -172,7 +172,7 @@ bool Wifi::ModeSta( int connTimoInSecs )
 {
     mMode = MODE_CONNECTING;
 
-    ESP_LOGI( TAG, "Connecting to \"%s\" ...", mSsid );
+    ESP_LOGI( TAG, "Connecting to \"%s\" ...", mSsid ); EXPRD(vTaskDelay(1))
 
     wifi_config_t wifi_config;
     memset( &wifi_config, 0, sizeof(wifi_config_t) );

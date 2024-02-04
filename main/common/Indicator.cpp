@@ -7,7 +7,7 @@
 
 #include "Indicator.h"
 
-#include "esp_log.h"
+#include <esp_log.h>
 
 const char *const TAG = "Indicator";
 
@@ -17,10 +17,10 @@ extern "C" void IndicatorTask( void * indicator )
 }
 
 Indicator::Indicator() :
-        mPinRed { GPIO_NUM_MAX },
-        mPinGreen{ GPIO_NUM_MAX },
+        mPinPrimary { GPIO_NUM_MAX },
+        mPinSecondary{ GPIO_NUM_MAX },
         mBlink { 0 },
-        mBlinkOk { 0 },
+        mBlinkSecondary { 0 },
         mSigMask { -1 },
         mTaskHandle { 0 },
         mSemaphore { 0 }
@@ -34,22 +34,25 @@ Indicator& Indicator::Instance()
     return s_indicator;
 }
 
-bool Indicator::Init( gpio_num_t pinRed, gpio_num_t pinGreen ) 
+bool Indicator::Init( gpio_num_t pinPrimary, gpio_num_t pinSecondary ) 
 {
-    mPinRed = pinRed;
-    mPinGreen = pinGreen;
+    mPinPrimary = pinPrimary;
+    mPinSecondary = pinSecondary;
 
     gpio_config_t io_conf;
 
-    io_conf.pin_bit_mask = (1 << mPinRed) | (1 << mPinGreen);
+    io_conf.pin_bit_mask = (1 << mPinPrimary);
+    if (mPinSecondary < GPIO_NUM_MAX)
+        io_conf.pin_bit_mask |= (1 << mPinSecondary);
     io_conf.mode = GPIO_MODE_OUTPUT;       // set as output mode
     io_conf.pull_up_en = GPIO_PULLUP_DISABLE;    // disable pull-up mode
     io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;  // disable pull-down mode
     io_conf.intr_type = GPIO_INTR_DISABLE;      // disable interrupt
 
     gpio_config( &io_conf );    // configure GPIO with the given settings
-    gpio_set_level( mPinRed, 0 );   // low active - switch on
-    gpio_set_level( mPinGreen, 0 );   // low active - switch on
+    gpio_set_level( mPinPrimary, 0 );   // low active - switch on
+    if (mPinSecondary < GPIO_NUM_MAX)
+        gpio_set_level( mPinSecondary, 0 );   // low active - switch on
 
     mSemaphore = xSemaphoreCreateBinary( );
     xTaskCreate( IndicatorTask, "Indicator", /*stack size*/1024, this,
@@ -71,19 +74,19 @@ void Indicator::Indicate( Indicator::STATUS status )
 {
     long sigMask = 0;
     switch (status) {
-    case STATUS_ERROR:      // |#########|__|###|__|###|__|###|__|
-        sigMask = 0x23232328;
+    case STATUS_ERROR:      // ######_##_##_##_
+        sigMask = 0x12121216;
         break;
-    case STATUS_AP:         // |###########################|_|#|_|
+    case STATUS_AP:         // #############_#_
         sigMask = 0x111d;
         break;
-    case STATUS_CONNECT:    // |###############################|_|
+    case STATUS_CONNECT:    // ###############_
         sigMask = 0x1f;
         break;
-    case STATUS_IDLE:       // |_______________________________|#|
+    case STATUS_IDLE:       // _______________#
         sigMask = 0xf1;
         break;
-    case STATUS_ACTIVE:     // |################|________________|
+    case STATUS_ACTIVE:     // ########________
         sigMask = 0x88;
         break;
     }
@@ -110,7 +113,7 @@ void Indicator::Steady( uint8_t on )
 void Indicator::Access( uint8_t ok )
 {
     if (ok) {
-        mBlinkOk = 1;
+        mBlinkSecondary = 1;
     } else {
         mBlink = 2;
     }
@@ -119,25 +122,26 @@ void Indicator::Access( uint8_t ok )
 
 void Indicator::Run()
 {
-    gpio_set_level( mPinGreen, 1 );  // low active - switch off
+    if (mPinSecondary < GPIO_NUM_MAX)
+        gpio_set_level( mPinSecondary, 1 );  // low active - switch off
     int phase = 0;
     while (true) {
-        if (mBlinkOk) {
-            gpio_set_level( mPinGreen, 0 );
+        if (mBlinkSecondary && (mPinSecondary < GPIO_NUM_MAX)) {
+            gpio_set_level( mPinSecondary, 0 );
             vTaskDelay( configTICK_RATE_HZ / 4 );
-            gpio_set_level( mPinGreen, 1 );
-            while (--mBlinkOk) {
+            gpio_set_level( mPinSecondary, 1 );
+            while (--mBlinkSecondary) {
                 vTaskDelay( configTICK_RATE_HZ / 8 );
-                gpio_set_level( mPinGreen, 0 );
+                gpio_set_level( mPinSecondary, 0 );
                 vTaskDelay( configTICK_RATE_HZ / 4 );
-                gpio_set_level( mPinGreen, 1 );
+                gpio_set_level( mPinSecondary, 1 );
             }
         }
         if (mBlink) {
             do {
-                gpio_set_level( mPinRed, 0 );
+                gpio_set_level( mPinPrimary, 0 );
                 vTaskDelay( configTICK_RATE_HZ / 16 );
-                gpio_set_level( mPinRed, 1 );
+                gpio_set_level( mPinPrimary, 1 );
                 vTaskDelay( configTICK_RATE_HZ / 16 );
             } while (--mBlink);
             vTaskDelay( configTICK_RATE_HZ / 16 );
@@ -145,12 +149,12 @@ void Indicator::Run()
         }
 
         if (mSigMask == 0) {
-            gpio_set_level( mPinRed, 0 );   // low active - switch on
+            gpio_set_level( mPinPrimary, 0 );   // low active - switch on
             xSemaphoreTake( mSemaphore, portMAX_DELAY );
             continue;
         }
         if (mSigMask == -1) {
-            gpio_set_level( mPinRed, 1 );   // low active - switch off
+            gpio_set_level( mPinPrimary, 1 );   // low active - switch off
             xSemaphoreTake( mSemaphore, portMAX_DELAY );
             continue;
         }
@@ -164,7 +168,7 @@ void Indicator::Run()
             duration = mSigMask & 0xf;
         }
 
-        gpio_set_level( mPinRed, phase & 1 );
+        gpio_set_level( mPinPrimary, phase & 1 );
         xSemaphoreTake( mSemaphore, (duration * configTICK_RATE_HZ) / 8 );
     }
 }
