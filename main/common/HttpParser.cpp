@@ -1,7 +1,7 @@
 /*
  * HttpParser.cpp
  */
-//define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 
 #include "HttpParser.h"
 
@@ -14,7 +14,7 @@ namespace
 const char * const TAG = "HttpParser";
 }
 
-bool HttpParser::ParseUriParam( httpd_req_t * req )
+const char * HttpParser::ParseUriParam( httpd_req_t * req )
 {
     const char * str = strchr( req->uri, '?' );
     if (str) {
@@ -24,18 +24,19 @@ bool HttpParser::ParseUriParam( httpd_req_t * req )
             const char * ampersand = strchr( str + 2, '&' );
             if (! ampersand)
                 ampersand = strend;
-            if (! Parse( str, ampersand )) {
-                return false;
-            }
+            const char * const parseErr = Parse( str, ampersand );
+            if (parseErr)
+                return parseErr;
+
             str = ampersand + 1;
         }
     }
 
     ClearUnparsed();
-    return true;
+    return nullptr;
 }
 
-bool HttpParser::ParsePostData( httpd_req_t * req )
+const char * HttpParser::ParsePostData( httpd_req_t * req )
 {
     char buf[100];
     char * readend = buf;
@@ -52,7 +53,7 @@ bool HttpParser::ParsePostData( httpd_req_t * req )
                     continue;  // Retry receiving if timeout occurred
                 }
                 ESP_LOGE( TAG, "httpd_req_recv failed with %d", readlen );
-                return false;
+                return "subsequentail httpd_req_recv failed";
             }
             remaining -= readlen;
             readend += readlen;
@@ -63,9 +64,10 @@ bool HttpParser::ParsePostData( httpd_req_t * req )
             ampersand = readend;
 
         ESP_LOGD( TAG, "Parse( \"%.*s\" / ampersand at offset %d )", readend-buf,buf, ampersand-buf );
-        if (! Parse( buf, ampersand )) {
-            return false;
-        }
+        const char * const parseErr = Parse( buf, ampersand );
+        if (parseErr)
+            return parseErr;
+
         if (ampersand != readend) {
             uint8_t move = readend - ampersand;  // incl. \0
             memmove( buf, ampersand + 1, move );
@@ -75,10 +77,10 @@ bool HttpParser::ParsePostData( httpd_req_t * req )
     } // while remaining || readend != buf
 
     ClearUnparsed();
-    return true;
+    return nullptr;
 }
 
-bool HttpParser::Parse( const char * str, const char * end )
+const char * HttpParser::Parse( const char * str, const char * end )
 {
     const char * equalsign = strchr( str + 1, '=' );
     if ((! equalsign) || (equalsign > end))
@@ -95,12 +97,12 @@ bool HttpParser::Parse( const char * str, const char * end )
 
         if (mFieldsParsed & (1 << i)) {
             ESP_LOGI( TAG, "parsed duplicate key \"%.*s\"", keylen, str );
-            return true;  // silently skip duplicate fields
+            return nullptr;  // silently skip duplicate fields
         }
 
         mFieldsParsed |= 1 << i;
         if (! (in->buf && in->len))
-            return true;
+            return nullptr;
         char * bp = in->buf;
         for (const char * val = equalsign + 1; val < end; ++val) {
             if ((*val == '%') && ((val+2) < end)) {
@@ -117,10 +119,10 @@ bool HttpParser::Parse( const char * str, const char * end )
         }
         *bp = 0;
         in->len = bp - in->buf;
-        return true;
+        return nullptr;
     }
     ESP_LOGI( TAG, "parsed unknown key \"%.*s\"", keylen, str );
-    return true;  // silently skip unknown fields
+    return nullptr;  // silently skip unknown fields
 }
 
 void HttpParser::ClearUnparsed()

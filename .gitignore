@@ -3,6 +3,7 @@
 .cproject
 .project
 build/
+buildnum
 images/
 *.bin
 *.elf

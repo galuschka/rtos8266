@@ -7,6 +7,8 @@
 #include <esp_http_server.h>    // httpd_req_t
 #include <string>               // std::string
 
+#define HttpHelperI2A( buf, val )  HttpHelper::I2A( buf, sizeof(buf), val )
+
 class HttpHelper
 {
     HttpHelper();
@@ -21,6 +23,8 @@ public:
     void Add( double val, int precision = 0 ) { Add( String( val, precision ) ); }
 
     void Add( const char * str, std::size_t len );
+
+    static char * I2A( char * buf, size_t bufSize, int val );
 
     static std::string String( double      val, int precision = 0 );
     static std::string String( float       val, int precision = 0 ) { return String((double)val,precision); };

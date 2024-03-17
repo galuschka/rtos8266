@@ -190,8 +190,10 @@ void Smiffer::Dump( httpd_req_t * req, bool isPost )
                                    { s_keyLoadData,  bufLoadData,  sizeof(bufLoadData)  } };
         HttpParser parser{ in, sizeof(in) / sizeof(in[0]) };
 
-        if (! parser.ParsePostData( req )) {
-            hh.Add( "unexpected end of data while parsing data" );
+        const char * parseError = parser.ParsePostData( req );
+        if (parseError) {
+            hh.Add( "parser error: " );
+            hh.Add( parseError );
             return;
         }
 

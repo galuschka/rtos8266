@@ -162,6 +162,29 @@ std::string HttpHelper::String( long val, int minLength )
     return std::string( bp );
 }
 
+char * HttpHelper::I2A( char * buf, size_t bufSize, int val )
+{
+    bool neg = false;
+    if (val < 0) {
+        neg = true;
+        val = -val;
+    }
+    char * bp = & buf[bufSize-1];
+    *bp = 0;
+    do {
+        *--bp = (val % 10) + '0';
+        val /= 10;
+    } while (val && (bp > buf));
+    if (val)
+        return nullptr;  // does not fit
+    if (neg) {
+        if (bp == buf)
+            return nullptr;  // does not fit
+        *--bp = '-';
+    }
+    return bp;
+}
+
 std::string HttpHelper::String( uint32_t val, int minLength )
 {
     ESP_LOGD( TAG, "stringify uint %u", val );

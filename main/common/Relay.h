@@ -18,7 +18,7 @@ public:
         MODE_AUTO,  // automatic control enabled -> Switch(x) will have effect
         MODE_ON,    // manual switch
     };
-    Relay( gpio_num_t pin, bool openDrain = false, bool lowActive = false );
+    Relay( gpio_num_t pin, bool openDrain = false, bool lowActive = false, GenMode initialMode = MODE_AUTO );
 
     bool    Status()  { return Active; }
     GenMode GetMode() { return Mode; };

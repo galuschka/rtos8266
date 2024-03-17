@@ -629,7 +629,7 @@ namespace {
 
 std::string InputField( const char * key, long min, long max, long val )
 {
-    std::string str {"<input type=\"number\" step=\"1\" name=\"" }; str += key;
+    std::string str {"<input type=\"number\" name=\"" }; str += key;
     str += "\" min=\"";   str += HttpHelper::String( min );
     str += "\" max=\"";   str += HttpHelper::String( max );
     str += "\" value=\""; str += HttpHelper::String( val );
@@ -681,8 +681,10 @@ void Control::Setup( struct httpd_req * req, bool post )
                                        { s_keyTempMax,  bufTempMax,  sizeof(bufTempMax)  } };
             HttpParser parser{ in, sizeof(in) / sizeof(in[0]) };
 
-            if (! parser.ParsePostData( req )) {
-                hh.Add( "unexpected end of data while parsing data" );
+            const char * parseError = parser.ParsePostData( req );
+            if (parseError) {
+                hh.Add( "parser error: " );
+                hh.Add( parseError );
                 return;
             }
 

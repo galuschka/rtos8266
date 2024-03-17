@@ -10,5 +10,6 @@ x() {
 
 x make PNAME=keypad
 x make PNAME=smiffer
+x make PNAME=swizz
 x make PNAME=tempizz
 x make PNAME=threswizz

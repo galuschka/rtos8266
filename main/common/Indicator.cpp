@@ -55,7 +55,7 @@ bool Indicator::Init( gpio_num_t pinPrimary, gpio_num_t pinSecondary )
     if (mPin[1] < GPIO_NUM_MAX)
         gpio_set_level( mPin[1], 0 );   // low active - switch on
 
-    mSemaphore = xSemaphoreCreateBinary( );
+    mSemaphore = xSemaphoreCreateBinary();
     xTaskCreate( IndicatorTask, "Indicator", /*stack size*/1024, this,
                  /*prio*/ 1, &mTaskHandle );
     if (!mTaskHandle) {
@@ -153,6 +153,7 @@ void Indicator::Run()
         gpio_set_level( mPin[1], 1 );  // low active - switch off
 
     uint8_t       blinking = 0;
+    uint8_t       newBlinking = 0;
     uint8_t       sigSlots[2];
     unsigned long sigMask[2];
 
@@ -169,8 +170,15 @@ void Indicator::Run()
             sigMask[pin]  = mSigMask[pin];
             sigSlots[pin] = mSigSlots[pin];
         }
+
+        if (blinking != newBlinking) {
+            blinking  = newBlinking;
+            mSigStart = now();
+        }
+
+        uint8_t minSlots2wait = 0xff;  // = no timeout
         {
-            uint8_t newBlinking = 0;
+            newBlinking = 0;
             for (int pin = 0; pin < 2; ++pin) {
                 if (mBlink[pin]) {
                     newBlinking |= 1 << pin;
@@ -180,15 +188,12 @@ void Indicator::Run()
                         sigMask[pin] = 0x12;  // 2 slots on / 1 slot off
                         sigSlots[pin] = 3;
                     }
+                } else if (blinking & (1 << pin)) {
+                    sigMask[pin] = 0;  // stay off for 10 slots after blinking just switched off
+                    minSlots2wait = 10;
                 }
             }
-            if (blinking != newBlinking) {
-                blinking  = newBlinking;
-                mSigStart = now();
-            }
         }
-
-        uint8_t minSlots2wait = 0xff;  // = no timeout
 
         TickType_t diff = now() - mSigStart;
         TickType_t slot = (diff + SLOT_TICKS_HALF) / SLOT_TICKS;

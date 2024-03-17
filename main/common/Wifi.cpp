@@ -6,6 +6,10 @@
 
 #include "Wifi.h"
 #include "Indicator.h"
+#include "WebServer.h"
+#include "HttpParser.h"
+#include "HttpHelper.h"
+#include "HttpTable.h"
 
 #include <string.h>         // strncpy()
 
@@ -13,6 +17,8 @@
 #include <nvs.h>            // nvs_open(), ...
 #include <esp_ota_ops.h>    // esp_ota_get_app_description()
 #include <esp_log.h>        // ESP_LOGI()
+#include <esp_http_server.h>
+#include <string>
 
 #if (LOG_LOCAL_LEVEL >= ESP_LOG_DEBUG)
 #define EXPRD(expr) do { expr; } while(0);
@@ -22,14 +28,16 @@
 
 namespace
 {
-const char * const TAG            = "Wifi";
-const char * const s_nvsNamespace = "wifi";
-const char * const s_keyHost      = "host";
-const char * const s_keyBgCol     = "bgcol";
+const char * const TAG               = "Wifi";
+
+Wifi               s_wifi{};
+
+const char * const s_nvsNamespace    = "wifi";
+const char * const s_keyHost         = "host";
+const char * const s_keyBgCol        = "bgcol";
 const char * const s_keySsid[2]      = { "ssid",      "ssid1" };
 const char * const s_keyPassword[2]  = { "password",  "password1" };
 const char * const s_keyNoStation[2] = { "nostation", "nostation1" };
-Wifi         s_wifi{};
 }
 
 Wifi & Wifi::Instance()
@@ -319,4 +327,179 @@ void Wifi::Init( int connTimoInSecs )
     Indicator::Instance().Indicate( Indicator::STATUS_AP );
     ESP_LOGD( TAG, "ModeAp()" ); EXPRD(vTaskDelay(1))
     ModeAp();
+}
+
+///////////////////// web interface /////////////////////
+
+extern "C" {
+
+esp_err_t handler_get_wifi( httpd_req_t * req )
+{
+    s_wifi.Setup( req );
+    return ESP_OK;
+}
+
+esp_err_t handler_post_wifi( httpd_req_t * req )
+{
+    s_wifi.Setup( req, true );
+    return ESP_OK;
+}
+
+}
+
+namespace
+{
+const char * const s_subWifi    = "WLAN parameter";
+const httpd_uri_t  uri_get_wifi = { .uri = "/wifi", .method = HTTP_GET,  .handler = handler_get_wifi,  .user_ctx = 0 };
+const httpd_uri_t uri_post_wifi = { .uri = "/wifi", .method = HTTP_POST, .handler = handler_post_wifi, .user_ctx = 0 };
+const WebServer::Page page_wifi   { uri_get_wifi, "Wifi" };
+}
+
+void Wifi::AddPage( WebServer & webserver )
+{
+    webserver.AddPage( page_wifi, & uri_post_wifi );
+}
+
+void Wifi::Setup( httpd_req_t * req, bool post )
+{
+    std::string postError{};
+    while (post)
+    {
+        if (! req->content_len) {
+            postError = "no data - nothing to be done";
+            break;
+        }
+
+        char * host  = 0;
+        char * bgcol = 0;
+        char * id[2] = { 0, 0 };
+        char * pw[2] = { 0, 0 };
+        char   bufhost[16];
+        char   bufbgcol[16];
+        char   bufid[2][16];
+        char   bufpw[2][32];
+
+        HttpParser::Input in[] = { { "host", bufhost,  sizeof(bufhost)  },
+                                   { "bgcol",bufbgcol, sizeof(bufbgcol) },
+                                   { "id0",  bufid[0], sizeof(bufid[0]) },
+                                   { "pw0",  bufpw[0], sizeof(bufpw[0]) },
+                                   { "id1",  bufid[1], sizeof(bufid[1]) },
+                                   { "pw1",  bufpw[1], sizeof(bufpw[1]) }
+                                 };
+        HttpParser parser{ in, sizeof(in) / sizeof(in[0]) };
+
+        const char * parseError = parser.ParsePostData( req );
+        if (parseError) {
+            postError = "parser error: ";
+            postError += parseError;
+            break;
+        }
+
+        if (strcmp( bufhost, Wifi::Instance().GetHost() ))
+            host = bufhost;
+        if (strcmp( bufbgcol, Wifi::Instance().GetBgCol() ))
+            bgcol = bufbgcol;
+        for (int i = 0; i < 2; ++i) {
+            if (strcmp( bufid[i], Wifi::Instance().GetSsid(i) ))
+                id[i] = bufid[i];
+            if (bufpw[i][0])
+                if (strcmp( bufpw[i], Wifi::Instance().GetPassword(i) ))
+                    pw[i] = bufpw[i];
+        }
+
+        if (! (host || bgcol
+                || id[0] || pw[0] || Wifi::Instance().NoStationCounter(0)
+                || id[1] || pw[1] || Wifi::Instance().NoStationCounter(1))) {
+            postError = "data unchanged";
+            break;
+        }
+
+        // ESP_LOGD( TAG, "before SetParam" ); EXPRD( vTaskDelay( 5 ) )
+
+        if (! Wifi::Instance().SetParam( host, bgcol, id[0], pw[0], id[1], pw[1] )) {
+            postError = "setting wifi parameter failed - try again";
+            break;
+        }
+
+        // ESP_LOGD( TAG, "after SetParam" ); EXPRD( vTaskDelay( 5 ) )
+        break;
+    } // pseudo while loop - just checked for post with some early break
+
+    HttpHelper hh{ req, s_subWifi, "Wifi" };
+
+    hh.Add( " <form method=\"post\">\n"
+            "  <table border=0>\n"
+    );
+
+    {
+        constexpr uint8_t r0 = 2;
+        Table<r0+9,5> table;
+        table.Unite(    0, 0 );  // unite with neighbor cell 0,1 -> Hostname
+        table.Unite(    1, 0 );  // unite with neighbor cell 1,1 -> Background color
+        table.Unite( r0+0, 0 );  // unite with neighbor cell x,1 -> Favorite WLAN
+        table.Unite( r0+4, 0 );  // unite with neighbor cell x,1 -> Alternate WLAN
+
+        table.Right( 1 );
+
+        table[0][2] = "&nbsp;";
+
+        table[0][0] = "Hostname:";
+        table[0]        [4] = "(used also as SSID in AP mode)";
+
+        table[1][0] = "Background color:";
+
+        table[r0+0][0] = "Favorite WLAN";
+        table[r0+1]  [1] = "SSID:";          table[r0+1][3] = "<input type=\"text\""  " name=\"id0\" maxlength=15 value=\"";
+        table[r0+2]  [1] = "Password:";      table[r0+2][3] = "<input type=\"password\" name=\"pw0\" maxlength=31>";
+        table[r0+3]  [1] = "Fail counter:";  table[r0+3][4] = "(number of connection errors)";
+
+        table[r0+4][0] = "Alternate WLAN";
+        table[r0+5]  [1] = "SSID:";          table[r0+5][3] = "<input type=\"text\""  " name=\"id1\" maxlength=15 value=\"";
+        table[r0+6]  [1] = "Password:";      table[r0+6][3] = "<input type=\"password\" name=\"pw1\" maxlength=31>";
+        table[r0+7]  [1] = "Fail counter:";  table[r0+7][4] = "(number of connection errors)";
+
+        table.Center( r0+8, 3 );
+        table[r0+8]    [3] = "<br /><button type=\"submit\">submit</button>";
+        if (! post)
+            table[r0+8] [4] = "<br />(set and reset fail counter)";
+        else if (postError.empty())
+            table[r0+8] [4] = "<br />(values successfully written)";
+        else
+            table[r0+8] [4] = "<br />error: " + postError;
+
+        const char * const host = Wifi::Instance().GetHost();
+        table[0]    [3] = "<input type=\"text\" name=\"host\" maxlength=15 value=\"";
+        if (host && *host)
+            table[0][3] += host;
+        table[0][3] += "\">";
+
+        const char * const color = Wifi::Instance().GetBgCol();
+        table[1]    [3] = "<input type=\"color\" name=\"bgcol\" value=\"";
+        if (color && *color)
+            table[1][3] += color;
+        else
+            table[1][3] += "lightblue";
+        table[1][3] += "\">";
+
+        const char * const pw0 = Wifi::Instance().GetPassword(0);
+        const char * const pw1 = Wifi::Instance().GetPassword(1);
+        if (pw0 && pw0[0])
+            table[r0+2]    [4] = "(keep empty to not change / clear SSID to clear)";
+        if (pw1 && pw1[0])
+            table[r0+6]    [4] = "(keep empty to not change / clear SSID to clear)";
+
+        for (int i = 0; i < 2; ++i) {
+            const char * const id = Wifi::Instance().GetSsid(i);
+            if (id && *id)
+                table[r0+1+(i*4)][3] += id;
+            table[r0+1+(i*4)][3] += "\">";
+            table[r0+3+(i*4)][3] = std::to_string( Wifi::Instance().NoStationCounter(i) );
+            table.Right( r0+3+(i*4), 3 );
+        }
+
+        table.AddTo( hh, 0, 1 );
+    }
+
+    hh.Add( "  </table>\n"
+            " </form>" );
 }

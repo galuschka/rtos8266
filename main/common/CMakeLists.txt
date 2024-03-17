@@ -1,4 +1,6 @@
-idf_component_register(SRCS Indicator.cpp
+idf_component_register(SRCS Init.cpp
+                            BootCnt.cpp
+                            Indicator.cpp
                             Wifi.cpp
                             WebServer.cpp
                             HttpHelper.cpp
@@ -7,6 +9,8 @@ idf_component_register(SRCS Indicator.cpp
                             Mqtinator.cpp
                             Temperator.cpp
                             Relay.cpp
+                            Fader.cpp
+                            Json.cpp
                INCLUDE_DIRS ""
           PRIV_INCLUDE_DIRS ../common ../compat ../../esp-open-rtos/extras
                    REQUIRES esp_common

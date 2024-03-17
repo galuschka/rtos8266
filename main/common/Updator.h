@@ -11,21 +11,29 @@
 
 #include <driver/gpio.h>    // gpio_num_t
 
+class WebServer;
+
 class Updator
 {
 public:
+    Updator() {};                   // just used once for s_updator
+    static Updator & Instance();    // return s_updator
+
     bool Go();      // trigger update
     bool Confirm(); // trigger continue: testing -> stable
 
     bool         SetUri( const char * uri );      // set in vfs and for next download
-    const char * GetUri() { return mUri; };       // get uri to be used for download
-    const char * GetMsg() { return mMsg; };       // status message
-    uint8_t      Progress() { return mProgress; };  // to be used for progress bar
+    const char * GetUri()   const { return mUri; };       // get uri to be used for download
+    const char * GetMsg()   const { return mMsg; };       // status message
+    uint8_t      Progress() const { return mProgress; };  // to be used for progress bar
 
-    static Updator & Instance();
     bool Init();
+    void AddPage( WebServer & webserver );
+    void GetReboot(   struct httpd_req * req );  // HTTP_GET reboot
+    void GetUpdate(   struct httpd_req * req );  // HTTP_GET start FW/favicon update or initiate reboot
+    void PostUpdate(  struct httpd_req * req );  // HTTP_POST show progress on FW update
+    void PostFavicon( struct httpd_req * req );  // HTTP_POST perform favicon update
 
-    Updator() {};
     void Run();  // internal thread routine, but must be public
 private:
     void Update();

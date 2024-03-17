@@ -11,6 +11,8 @@
 #include <tcpip_adapter.h>
 
 class Indicator;
+class WebServer;
+struct httpd_req;
 
 class Wifi
 {
@@ -45,6 +47,9 @@ public:
     bool         StationMode()           const { return mMode == MODE_STATION; }
     bool         AccessPoint()           const { return mMode == MODE_ACCESSPOINT; }
     u16_t        NoStationCounter(int i) const { return mNoStation[i]; }
+
+    void AddPage( WebServer & webserver );
+    void Setup( struct httpd_req * req, bool post = false );  // set hostname, etc.
 
     bool SetParam( const char * host,  const char * bgcol,
                    const char * ssid0, const char * password0,

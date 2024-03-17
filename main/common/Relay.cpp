@@ -21,9 +21,9 @@ TickType_t now()
 }
 
 //@formatter:off
-Relay::Relay( gpio_num_t pin, bool openDrain, bool lowActive )
+Relay::Relay( gpio_num_t pin, bool openDrain, bool lowActive, GenMode initialMode )
               : Pin         { pin },
-                Mode        { MODE_AUTO },
+                Mode        { initialMode },
                 Active      { false },
                 AutoActive  { false },
                 LowActive   { lowActive },

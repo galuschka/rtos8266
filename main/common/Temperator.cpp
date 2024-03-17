@@ -86,7 +86,9 @@ void Temperator::Setup( httpd_req_t * req, bool post )
 
     ESP_LOGD( TAG, "have %d device infos -> n set to %d", mDevInfo.size(), n );
 
-    if (post) {
+    std::string postError{};
+
+    while (post) {
         ESP_LOGD( TAG, "got POST data" );
         if (n) {
             HttpParser::Input in[(2 * n) + INTERVAL::COUNT];
@@ -112,10 +114,13 @@ void Temperator::Setup( httpd_req_t * req, bool post )
 
             HttpParser parser{ in, (uint8_t) (sizeof(in)/sizeof(in[0])) };
 
-            if (! parser.ParsePostData( req )) {
-                hh.Add( "unexpected end of data while parsing post data" );
-                return;
+            const char * parseError = parser.ParsePostData( req );
+            if (parseError) {
+                postError = "parser error: ";
+                postError += parseError;
+                break;
             }
+
             for (uint8_t i = 0; i < n; ++i) {
                 bool mod = false;
                 if (in[i].len) {
@@ -148,12 +153,17 @@ void Temperator::Setup( httpd_req_t * req, bool post )
                     }
                 }
         }
-    } else {
+        break;
+    } // end ot pseudo while
+    if (! post) {
         // ESP_LOGD( TAG, "got GET data" );
         HttpParser::Input in[] = { { "rescan", 0, 0 } };
         HttpParser parser{ in, sizeof(in) / sizeof(in[0]) };
-        if (! parser.ParseUriParam( req )) {
-            hh.Add( "unexpected end of data while parsing get query" );
+
+        const char * parseError = parser.ParseUriParam( req );
+        if (parseError) {
+            hh.Add( "parser error: " );
+            hh.Add( parseError );
             return;
         }
         if (parser.Fields() & 1) {
@@ -270,6 +280,14 @@ void Temperator::Setup( httpd_req_t * req, bool post )
             table[0][4].clear();
             table[0][5].clear();
             table[0][6] = "<button type=\"submit\" title=\"set device names and interval times\">submit</button>";
+            if (post) {
+                if (postError.empty())
+                    table[0][7] = "setup succeeded";
+                else {
+                    table[0][7] = "setup failed: ";
+                    table[0][7] += postError;
+                }
+            }
             table.AddTo( hh );
         }
         hh.Add( "  </table>\n"
@@ -576,18 +594,15 @@ void Temperator::Run()
                     sleep = mInterval[ INTERVAL::FAST ];
                 }
 
-                std::string val = HttpHelper::String( temperature, 1 );
+#if (LOG_LOCAL_LEVEL >= ESP_LOG_DEBUG)
                 if (mDevInfo[i].name.length()) {
-                    ESP_LOGI( TAG, "temperature %s: %s°C", mDevInfo[i].name.c_str(), val.c_str() );
+                    ESP_LOGD( TAG, "temperature %s: %.1g°C", mDevInfo[i].name.c_str(), temperature );
                 } else {
-                    ESP_LOGI( TAG, "temperature %08x-%08x: %s°C", (uint32_t) (addr >> 32), (uint32_t) addr, val.c_str() );
+                    ESP_LOGD( TAG, "temperature %08x-%08x: %.1g°C", (uint32_t) (addr >> 32), (uint32_t) addr, temperature );
                 }
+#endif
                 if (mDevInfo[i].idx) {
-                    std::string msg = "{ \"idx\": " + std::to_string( mDevInfo[i].idx )
-                                    + ", \"nvalue\": 0"
-                                    + ", \"svalue\": \"" + val + "\""
-                                    + " }";
-                    Mqtinator::Instance().Pub( 0, msg.c_str() ); // topic=0: no topic / just mPubTopic
+                    Mqtinator::Instance().Pub( mDevInfo[i].idx, HttpHelper::String( temperature, 1 ) );
                 }
             }
         }

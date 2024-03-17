@@ -20,11 +20,8 @@
  *                      - 3V3        5V - power supply
  */
 
-#include "Wifi.h"
-#include "WebServer.h"
+#include "Init.h"
 #include "Indicator.h"
-#include "Updator.h"
-#include "Mqtinator.h"
 #include "Temperator.h"
 #include "Relay.h"
 #include "Input.h"
@@ -33,33 +30,12 @@
 #include "Monitor.h"
 #include "Control.h"
 
-#include <esp_event.h>  // esp_event_loop_create_default()
-#include <esp_netif.h>  // esp_netif_init()
 #include <esp_log.h>    // ESP_LOGI()
-#include <nvs_flash.h>  // nvs_flash_init()
 
 #include <driver/gpio.h>    // gpio_config(), gpio_set_level()
 
-static const char *TAG = "threswizz";
-
-void main_nvs_init()
-{
-    esp_err_t err = nvs_flash_init();
-    if (err != ESP_OK) {
-        if ((err == ESP_ERR_NVS_NO_FREE_PAGES)/* || (err == ESP_ERR_NVS_NEW_VERSION_FOUND)*/) {
-            // NVS partition was truncated and needs to be erased
-            // Retry nvs_flash_init
-            ESP_LOGW( TAG, "no free pages - erasing NVS partition" );
-            ESP_ERROR_CHECK( nvs_flash_erase() );
-            ESP_ERROR_CHECK( nvs_flash_init() );
-        } else {
-            _esp_error_check_failed( err, __ESP_FILE__, __LINE__, __ASSERT_FUNC,
-                    "nvs-flash-init()" );
-        }
-    }
-
-    ESP_ERROR_CHECK( esp_netif_init() );
-    ESP_ERROR_CHECK( esp_event_loop_create_default() );
+namespace {
+const char *TAG = "threswizz";
 }
 
 extern "C" void tempCallback( void * control, uint16_t idx, float temperature )
@@ -69,27 +45,7 @@ extern "C" void tempCallback( void * control, uint16_t idx, float temperature )
 
 extern "C" void app_main()
 {
-    ESP_LOGD( TAG, "Indicator..." );
-    // LED on GPIO2:
-    Indicator::Instance().Init( GPIO_NUM_2 );
-
-    ESP_LOGD( TAG, "nvs_flash_init..." );
-    main_nvs_init();  // initialize non-volatile file system
-
-    ESP_LOGD( TAG, "Wifi..." );
-    Wifi::Instance().Init( 60 );
-
-    // Wifi::Init blocks until success (or access point mode)
-
-    ESP_LOGD( TAG, "Updator..." );
-    Updator::Instance().Init();
-
-    ESP_LOGD( TAG, "Mqtinator..." );
-    Mqtinator & mqtinator = Mqtinator::Instance();
-    mqtinator.Init();
-
-    ESP_LOGD( TAG, "WebServer..." );
-    WebServer::Instance().Init();
+    Init::Init();
 
     Relay        relay1 { GPIO_NUM_4,  true, true };  // open drain mode and low active
     Relay        relay2 { GPIO_NUM_12, true, true };  // open drain mode and low active

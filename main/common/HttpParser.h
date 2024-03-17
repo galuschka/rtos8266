@@ -25,12 +25,12 @@ public:
     {
     };
 
-    bool ParsePostData( httpd_req_t * req );
-    bool ParseUriParam( httpd_req_t * req );
-    uint32_t Fields() { return mFieldsParsed; };  // +fields without ...=value
+    const char * ParsePostData( httpd_req_t * req );
+    const char * ParseUriParam( httpd_req_t * req );
+    uint32_t     Fields() { return mFieldsParsed; };  // +fields without ...=value
 private:
-    bool Parse( const char * str, const char * end );
-    void ClearUnparsed();
+    const char * Parse( const char * str, const char * end );
+    void         ClearUnparsed();
 
     Input * const mInArray;
     uint8_t const mNofFields;

@@ -1,4 +1,4 @@
-idf_component_register( SRCS tempizz_main.cpp
+idf_component_register( SRCS tempizz_main.cpp rgb.cpp
                              ../../esp-open-rtos/extras/onewire/onewire.c
                              ../../esp-open-rtos/extras/ds18b20/ds18b20.c
                 INCLUDE_DIRS ""

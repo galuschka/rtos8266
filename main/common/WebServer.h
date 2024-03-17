@@ -36,7 +36,10 @@ public:
     static WebServer& Instance();
 
     void Init();
+    void InitPages();
     void AddPage( const Page & page, const httpd_uri_t * postUri = 0 );
+    void AddUri( const httpd_uri_t & uri );
+
     void MainPage( httpd_req_t * req );
     PageList const * GetPageList() { return mAnchor; }
 

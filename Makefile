@@ -4,7 +4,7 @@
 #
 
 PROJECT_NAME := $(PNAME)
-PROJECT_VER := $(shell git describe --abbr=5 --dirty=+)
+PROJECT_VER := $(shell ./version.py)
 
 IDF_PATH := sdk
 
