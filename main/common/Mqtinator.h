@@ -23,6 +23,7 @@ public:
         CALL_DONE_PASSED = 0x40,
         CALL_DONE_FAILED = 0x80,
     };
+    typedef void (*ConnectedCallback)( Mqtinator & mqtinator );
     typedef void (*SubCallback)( const char * topic, const char * data );
 
     Mqtinator() {};
@@ -38,6 +39,7 @@ public:
     bool Sub( const char * topic, SubCallback callback );
     bool WdPub( const char * topic, const char * string, uint8_t qos = 1, uint8_t retain = 0 );
     bool WdSub( const char * topic, SubCallback callback );
+    void OnConnected( ConnectedCallback callback );
 
     void CbConnect(  mqtt_client_t * client, 
                      void * arg, mqtt_connection_status_t status );  // on status change
@@ -88,6 +90,7 @@ private:
     char       mInData[800] { "" };
 
     std::map<std::string, SubCallback> mSubCallbackMap[2] {};
+    ConnectedCallback   mOnConnected { 0 };
 
     TaskHandle_t      mTaskHandle{ 0 };
     SemaphoreHandle_t mSemaphore { 0 };

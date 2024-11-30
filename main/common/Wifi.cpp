@@ -3,6 +3,7 @@
  */
 
 //define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+#define LOG_LOCAL_LEVEL ESP_LOG_INFO // show IP address
 
 #include "Wifi.h"
 #include "Indicator.h"

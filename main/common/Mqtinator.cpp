@@ -347,6 +347,8 @@ bool Mqtinator::Connect()
                 CallWait( CALL_SUBSCRIBE );
         }
     }
+    if (mOnConnected)
+        mOnConnected( *this );
     return true;
 }
 
@@ -466,6 +468,11 @@ bool Mqtinator::SubExtended( int8_t topicGroup, const char * topic, SubCallback 
         mSubCallbackMap[topicGroup].erase( topic );
     }
     return (e == ERR_OK);
+}
+
+void Mqtinator::OnConnected( Mqtinator::ConnectedCallback callback )
+{
+    mOnConnected = callback;
 }
 
 bool Mqtinator::ReadParam()

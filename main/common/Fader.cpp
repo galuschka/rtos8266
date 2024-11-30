@@ -138,7 +138,9 @@ void Fader::Run()
 
     ESP_LOGD( TAG, "will loop" );
     DBG_DELAY
+# ifdef NDEBUG
     ulong lastIntrCnt = mIntrCnt - 1;
+# endif
     while (true) {
         uint32_t notification = 0;
         BaseType_t succ = xTaskNotifyWait( 0, 0xffffffff, & notification, configTICK_RATE_HZ );
@@ -152,8 +154,8 @@ void Fader::Run()
                     ESP_LOGW( TAG, "lost interrupt?" );
                     hw_timer_alarm_ticks( TMR_DIV, TMR_MIN, false );
                 }
+                lastIntrCnt = mIntrCnt;
 #           endif
-            lastIntrCnt = mIntrCnt;
             continue;
         }
 

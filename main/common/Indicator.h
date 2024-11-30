@@ -28,6 +28,7 @@ public:
     //                   0 -> steady off
     //                   1 -> steady on
     void SigMask( unsigned long priSigMask, unsigned long secSigMask = 0 );
+    void SigDelay( unsigned long ticksDelay );   // delay signalling for some time
     void Blink( uint8_t numPri, uint8_t numSec = 0 );  // num = number of times on
     void Access( uint8_t ok );  // false: 2x primary / true: 1x secondary
     void Steady( uint8_t on );  // steady on/off
@@ -46,7 +47,8 @@ private:
     uint8_t           mBlink[2]     { 0, 0 };  // 0xff: steady on
     unsigned long     mSigMask[2]   { 0, 0 };
     uint8_t           mSigSlots[2]  { 1, 1 };  // just to avoid div 0
-    TickType_t        mSigStart     { 0 };
+    TickType_t        mSigStart     { 0 };  // phase 0 start
+    TickType_t        mSigDelay     { 0 };  // when to resume signalling (0 = not resume)
     bool              mPause        { false };
     TaskHandle_t      mTaskHandle   { 0 };
     SemaphoreHandle_t mSemaphore    { 0 };

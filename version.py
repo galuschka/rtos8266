@@ -14,6 +14,10 @@ def max99( x ):
 
 def version( descr ):
     # descr expected as $(git describe --dirty=+) output: major[.minor[.patch]][-commit[-ghash]][+]
+    dirty = False
+    if descr[-1] == '+':
+        dirty = True
+        descr = descr[:-1]
     dash = descr.split('-')
     dot  = dash[0].split('.')
     v = 0
@@ -30,12 +34,12 @@ def version( descr ):
         v += max99(dash[1])
     v *= 100
 
-    if descr[-1] != '+':
+    if not dirty:
         with open('buildnum', "w") as f:
             f.write( "0\n" )
-        return v
+        return str(v) + "-" + descr
 
-    buildnum = "0"
+    buildnum = 0
     try:
         with open('buildnum', "r") as f:
             buildnum = f.readline().rstrip('\n')
@@ -46,10 +50,10 @@ def version( descr ):
     with open('buildnum', "w") as f:
         f.write( str(buildnum) + "\n" )
     v += max99(buildnum)
-    return v
+    return str(v) + "-" + descr
 
 if __name__ == "__main__":
     import os
     stream = os.popen('git describe --dirty=+')
     gitvers = stream.read().rstrip('\n')
-    print( str(version(gitvers)) + "-" + gitvers )
+    print( version(gitvers) )

@@ -96,8 +96,10 @@ void Indicator::Indicate( Indicator::STATUS status )
 
 void Indicator::SigMask( unsigned long priSigMask, unsigned long secSigMask )
 {
-    if ((mSigMask[0] == priSigMask) && (mSigMask[1] == secSigMask))
+    if ((mSigMask[0] == priSigMask) && (mSigMask[1] == secSigMask)) {
+        mSigDelay = 0;
         return;
+    }
     mBlink[0] = mBlink[1] = 0;
     mSigMask[0] = priSigMask;
     mSigMask[1] = secSigMask;
@@ -109,8 +111,21 @@ void Indicator::SigMask( unsigned long priSigMask, unsigned long secSigMask )
             slots += (mask & 0xf);
         mSigSlots[pin] = slots;
     }
+    mSigDelay = 0;
     mSigStart = now();
     xSemaphoreGive( mSemaphore );
+}
+
+void Indicator::SigDelay( unsigned long ticksDelay )
+{
+    if (! mSigDelay) {
+        // gpio_set_level( mPin[0], 1 ); - not to switch primary
+        if (mPin[1] < GPIO_NUM_MAX)
+            gpio_set_level( mPin[1], 1 );
+    }
+    mSigDelay = now() + ticksDelay;
+    if (! mSigDelay)
+        --mSigDelay;
 }
 
 void Indicator::Blink( uint8_t numPri, uint8_t numSec )
@@ -171,29 +186,52 @@ void Indicator::Run()
             sigSlots[pin] = mSigSlots[pin];
         }
 
-        if (blinking != newBlinking) {
-            blinking  = newBlinking;
-            mSigStart = now();
+        uint8_t minSlots2wait = 0xff;  // = no timeout
+
+        if (mSigDelay) {
+            long remDelay = mSigDelay - now();
+            if (remDelay > 0) {
+                unsigned long delaySlots = (remDelay + SLOT_TICKS_HALF) / SLOT_TICKS;
+                if (delaySlots < 0xff) {
+                    minSlots2wait = (delaySlots < 1) ? 1 : (uint8_t) delaySlots;
+                }
+                for (int pin = 0; pin < 2; ++pin) {
+                    sigMask[pin]  = 0;  // delay signalling -> 0
+                    sigSlots[pin] = 1;  // delay signalling (avoid div!0)
+                }
+            } else {  // delay expired
+                mSigDelay = 0;      // no more delay
+                mSigStart = now();  // restart
+            }
         }
 
-        uint8_t minSlots2wait = 0xff;  // = no timeout
-        {
+        // {
             newBlinking = 0;
             for (int pin = 0; pin < 2; ++pin) {
                 if (mBlink[pin]) {
-                    newBlinking |= 1 << pin;
-                    if (mBlink[pin] == 0xff)
-                        sigMask[pin] = 1;
-                    else {
+                    newBlinking |= 1 << pin;  // which LEDs shall blink
+                    if (mBlink[pin] == 0xff) {
+                        sigMask[pin] = 1;  // steady on
+                        sigSlots[pin] = 1;
+                    } else {
                         sigMask[pin] = 0x12;  // 2 slots on / 1 slot off
                         sigSlots[pin] = 3;
                     }
                 } else if (blinking & (1 << pin)) {
-                    sigMask[pin] = 0;  // stay off for 10 slots after blinking just switched off
-                    minSlots2wait = 10;
+                    sigMask[pin] = 0;  // stay off for 10 slots after blinking just finished
+                    if (minSlots2wait > 10)
+                        minSlots2wait = 10;
                 }
             }
-        }
+            if (blinking != newBlinking) {
+                blinking  = newBlinking;
+                mSigStart = now();
+            }
+            if ((blinking == 1) ||  // blink LED 0 ==> LED 1 off (2-blinking)==1
+                (blinking == 2)) {  // blink LED 1 ==> LED 0 off (2-blinking)==0
+                sigMask[2-blinking] = 0;
+            }
+        // }
 
         TickType_t diff = now() - mSigStart;
         TickType_t slot = (diff + SLOT_TICKS_HALF) / SLOT_TICKS;

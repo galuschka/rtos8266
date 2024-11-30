@@ -13,9 +13,11 @@ typedef unsigned short u16;
 class Keypad
 {
 public:
-    Keypad( const u8 * col, u8 nofCols,
-            const u8 * row, u8 nofRows );
-    // virtual ~Keypad() = 0;
+    Keypad( u16 pullUpPins,
+            u16 pullDownPins,
+            const u8 * col, u8 nofCols,
+            const u8 * row, u8 nofRows
+          );
 
     virtual void OnKeyPress( u8 num );                // 1st press of a single key
     virtual void OnRelease();                         // key released after single key pressed
@@ -25,16 +27,22 @@ public:
     void Run();
 
 private:
-    void RowsOutColsIn();       // fast check: all rows set 1 and colMask is read
+    void    InPullUp();         // enable pull up   resistor for input pins without hard wired resistor
+    void    InPullDown();       // enable pull down resistor for input pins without hard wired resistor
+    void    InOpenDrain();      // disable any pull resistor for input pins without hard wired resistor
+    u8      Num( u8 o, u8 i );  // -> outpin pin o x input pin i -> keypad number 0..15
 
-    u8 const * mCol;     // GPIO pins
-    u8 const * mRow;     // GPIO pins
-    u8 const   mNofCols;
-    u8 const   mNofRows;
-    u8         mMultiKey;  // set, when multiple keys pressed until all released
-    u16        mAllCols; // 1 << pin
-    u16        mAllRows; // 1 << pin
-    u16        mNumMask; // 1 << num
+    u16 const  mPullUpPins;   // must be input pins - hard wired pull up
+    u16 const  mPullDownPins; // must be input pins - hard wired pull down
+    u8 const * mOut;    // GPIO output pins
+    u8 const * mIn;     // GPIO input pins
+    u8         mColOut;  // true when columns are output
+    u8         mNofOut; // number of output pins
+    u8         mNofIn;  // number of input pins
+    u8         mMultiKey;   // set, when multiple keys pressed until all released
+    u16        mAllOut;     // 1 << pin1 | 1 << pin2 | ...
+    u16        mAllIn;      // 1 << pin1 | 1 << pin2 | ...
+    u16        mNumMask;    // 1 << num
 
     gpio_config_t mInConf;
     gpio_config_t mOutConf;
